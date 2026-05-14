@@ -1,0 +1,44 @@
+[package]
+name = "strack-sim"
+version = "0.1.0"
+edition = "2021"
+authors = ["kiwios-cn"]
+description = "STrack 多路径 RDMA 网络模拟器 (Rust)"
+license = "MIT"
+
+[dependencies]
+# 随机数：可复现
+rand = "0.8"
+rand_pcg = "0.3"
+# 日志
+log = "0.4"
+env_logger = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# 序列化（用于配置 / 指标导出）
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# 命令行
+clap = { version = "4", features = ["derive"] }
+# 错误处理
+thiserror = "1.0"
+anyhow = "1.0"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "des_bench"
+harness = false
+
+[[example]]
+name = "des_demo"
+path = "examples/des_demo.rs"
+
+[[example]]
+name = "incast_compare"
+path = "examples/incast_compare.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1

@@ -1,0 +1,4 @@
+/target
+/logs/*.log
+Cargo.lock.bak
+.DS_Store
