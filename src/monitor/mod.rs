@@ -72,4 +72,35 @@ impl SimSummary {
         println!("│ 最大队列深度        {} bytes", self.max_queue_depth_bytes);
         println!("└──────────────────────────────────────────");
     }
+
+    /// CSV 表头（便于批量写入文件）
+    pub fn csv_header() -> &'static str {
+        "mode,total_flows,completed_flows,total_time_ms,packets_sent,packets_retransmitted,ecn_marks,drops,fct_p50_us,fct_p95_us,fct_p99_us,fct_max_us,avg_link_util_pct,max_queue_depth_bytes"
+    }
+
+    /// 转为 CSV 单行（不含换行符）
+    pub fn to_csv_row(&self) -> String {
+        format!(
+            "{},{},{},{:.3},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.1},{}",
+            self.mode,
+            self.total_flows,
+            self.completed_flows,
+            self.total_time_ns as f64 / 1e6,
+            self.total_packets_sent,
+            self.total_packets_retransmitted,
+            self.total_ecn_marks,
+            self.total_drops,
+            self.fct_p50_ns as f64 / 1e3,
+            self.fct_p95_ns as f64 / 1e3,
+            self.fct_p99_ns as f64 / 1e3,
+            self.fct_max_ns as f64 / 1e3,
+            self.avg_link_util * 100.0,
+            self.max_queue_depth_bytes,
+        )
+    }
+
+    /// 导出为 JSON 字符串
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
 }

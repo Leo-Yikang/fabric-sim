@@ -19,7 +19,7 @@ pub enum EventKind {
     /// 包到达（接收端网卡）
     PacketArrive { packet_id: u64, src: EntityId },
     /// 包发送完成（发送端网卡 / 出端口）
-    PacketDepart { packet_id: u64, dst: EntityId },
+    PacketDepart { packet_id: u64, dst: EntityId, port: u8 },
     /// 超时（CC / 重传定时器）
     Timeout { timer_id: u64 },
     /// 仿真停止

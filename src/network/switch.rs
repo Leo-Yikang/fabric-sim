@@ -35,11 +35,13 @@ pub struct SwitchPort {
     pub queue_bytes: u32,
     pub busy_until: u64,
     pub max_queue_depth_seen: u32,
+    /// 是否已有 PacketDepart 事件在等待处理该端口（防止重复调度导致事件风暴）
+    pub egress_pending: bool,
 }
 
 impl SwitchPort {
     pub fn new(id: PortId, link_id: u32) -> Self {
-        Self { id, link_id, queue: VecDeque::new(), queue_bytes: 0, busy_until: 0, max_queue_depth_seen: 0 }
+        Self { id, link_id, queue: VecDeque::new(), queue_bytes: 0, busy_until: 0, max_queue_depth_seen: 0, egress_pending: false }
     }
 }
 
@@ -74,8 +76,8 @@ impl Switch {
             }
         };
 
-        let chosen = if pkt.path_hint > 0 && ((pkt.path_hint as usize) - 1) < ports.len() {
-            ports[(pkt.path_hint as usize) - 1]
+        let chosen = if pkt.routing_tag > 0 && ((pkt.routing_tag as usize) - 1) < ports.len() {
+            ports[(pkt.routing_tag as usize) - 1]
         } else {
             ports[(hash_key as usize) % ports.len()]
         };
@@ -175,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn path_hint_overrides_ecmp() {
+    fn routing_tag_overrides_ecmp() {
         let mut sw = Switch::new(0, 1_000_000, 10_000_000);
         let p1 = sw.add_port(10);
         let p2 = sw.add_port(11);
@@ -183,9 +185,9 @@ mod tests {
         sw.routing.add(999, p1);
         sw.routing.add(999, p2);
         sw.routing.add(999, p3);
-        // path_hint=2 → 强制走第二个端口（p2）
+        // routing_tag=2 → 强制走第二个端口（p2）
         let mut pkt = Packet::data(1, 0, 0, 100, 999, 0);
-        pkt.path_hint = 2;
+        pkt.routing_tag = 2;
         let (chosen, _) = sw.ingress(pkt, 9999);
         assert_eq!(chosen.unwrap(), p2);
     }

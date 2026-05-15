@@ -3,12 +3,12 @@
 //! 拓扑：4 Leaf × 2 Spine × 4 host/leaf = 16 hosts
 //! 流量：15 个发送端同时向 host 0 发 64KB（典型 Incast）
 
-use strack_sim::nic::CongestionMode;
+use strack_sim::nic::{STrackProtocol, STrackMode};
 use strack_sim::sim_runner::SimRunner;
 use strack_sim::topology::LeafSpine;
 use strack_sim::traffic::Incast;
 
-fn run_one(mode: CongestionMode, label: &str) {
+fn run_one(mode: STrackMode, label: &str) {
     println!("\n========== 模式：{} ==========", label);
 
     let topo = LeafSpine {
@@ -23,7 +23,9 @@ fn run_one(mode: CongestionMode, label: &str) {
     }.build();
 
     let n_hosts = topo.num_hosts();
-    let mut runner = SimRunner::new(topo, mode);
+    let mut runner = SimRunner::new(topo, label.to_string(), |h, n_paths| {
+        Box::new(STrackProtocol::new(h, mode, n_paths))
+    });
 
     // 1 receiver = host 0；其他 15 个都是发送端
     let senders: Vec<u32> = (1..n_hosts as u32).collect();
@@ -51,6 +53,6 @@ fn main() {
     println!("拓扑：4 Leaf × 2 Spine × 4 host/leaf = 16 hosts");
     println!("流量：15 个发送端同时向 host 0 发 64 KB（Incast）");
 
-    run_one(CongestionMode::Ecmp, "ECMP baseline");
-    run_one(CongestionMode::Strack, "STrack");
+    run_one(STrackMode::Ecmp, "ECMP baseline");
+    run_one(STrackMode::Strack, "STrack");
 }

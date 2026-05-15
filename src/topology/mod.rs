@@ -1,5 +1,6 @@
 //! 拓扑生成器
 //!
+//! - `Dumbell`：Dumbbell 拓扑（两台交换机 + 瓶颈链路，经典拥塞控制实验拓扑）
 //! - `LeafSpine`：两层 Leaf-Spine（典型 AI 集群拓扑）
 //! - `FatTree`：k-ary Fat-Tree（教科书拓扑）
 //!
@@ -8,9 +9,11 @@
 
 pub mod leaf_spine;
 pub mod fat_tree;
+pub mod dumbell;
 
 pub use leaf_spine::LeafSpine;
 pub use fat_tree::FatTree;
+pub use dumbell::Dumbell;
 
 use crate::network::{LinkRegistry, Switch};
 use crate::EntityId;
@@ -32,7 +35,7 @@ pub struct HostUplink {
     pub host: EntityId,
     pub edge_switch: EntityId,
     pub link_to_switch: u32,
-    pub link_to_host: u32,
+    pub link_to_host: u32,//？多余？
 }
 
 impl Topology {

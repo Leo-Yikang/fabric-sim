@@ -1,13 +1,13 @@
-//! 网卡模型与 STrack 协议栈（阶段三）
+//! 网卡模型与可插拔协议栈（阶段三重构后）
 //!
-//! - `tx`: 发送端 NIC，含 Packet Spraying + 拥塞窗口 + 路径黑名单
-//! - `rx`: 接收端 NIC，含 Reorder Buffer + SACK Bitmap
-//! - `cc`: 拥塞控制策略 trait（默认实现 STrack 策略 / ECMP-only baseline）
+//! - `protocol`: 通用 `Protocol` trait + `ProtocolStats`
+//! - `strack`: STrack 协议实现（含 ECMP / STrack 两种模式）
+//! - `tcp`: 简化 TCP 实现（验证 trait 通用性）
 
-pub mod tx;
-pub mod rx;
-pub mod cc;
+pub mod protocol;
+pub mod strack;
+pub mod tcp;
 
-pub use tx::{TxNic, TxStats};
-pub use rx::{RxNic, RxStats};
-pub use cc::{CongestionMode, PathState};
+pub use protocol::{Protocol, ProtocolStats};
+pub use strack::{STrackProtocol, STrackMode, PathState};
+pub use tcp::SimpleTcp;

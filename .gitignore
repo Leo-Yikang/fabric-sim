@@ -2,3 +2,5 @@
 /logs/*.log
 Cargo.lock.bak
 .DS_Store
+output/
+scripts/.venv/

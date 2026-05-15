@@ -39,6 +39,10 @@ path = "examples/des_demo.rs"
 name = "incast_compare"
 path = "examples/incast_compare.rs"
 
+[[example]]
+name = "workload_sweep"
+path = "examples/workload_sweep.rs"
+
 [profile.release]
 lto = true
 codegen-units = 1

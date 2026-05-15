@@ -6,7 +6,7 @@
 //! ## 模块组织
 //! - [`core`]:     离散事件引擎（事件、事件队列、时钟、调度器）
 //! - [`network`]:  网络拓扑与物理层抽象（节点、链路、交换机）
-//! - [`nic`]:      网卡模型与 STrack 协议栈（CC、SACK、Reorder Buffer）
+//! - [`nic`]:      可插拔网卡协议栈（`Protocol` trait；已内置 STrack、SimpleTCP）
 //! - [`topology`]: 拓扑生成器（Fat-Tree, Leaf-Spine）
 //! - [`traffic`]:  流量生成器（AllReduce, AllToAll, Incast）
 //! - [`monitor`]:  指标采集与日志输出

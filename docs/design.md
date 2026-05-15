@@ -205,7 +205,36 @@ if seq == next_expected {
 
 ## 5. 阶段四：流量生成与指标
 
-### 5.1 Incast
+### 5.1 基础流量模式
+
+| 模式 | 特点 | 适用场景 |
+|------|------|---------|
+| `Incast` | N→1 同步突发 | 测试拥塞控制、Buffer 压力 |
+| `AllToAll` | 全员两两交换 | 测试全网负载均衡 |
+| `RingAllReduce` | 环形传递 | 测试 AI 集合通信 |
+| `Permutation` | 无热点排列 | 测试无偏路由 |
+| `Synthetic` | 三维可组合（分布×到达×通信对） | 系统化参数扫描 |
+| `Mix` | 多组件按比例混合 | 模拟真实混合工作负载 |
+
+### 5.2 Synthetic 通用合成流量
+
+支持以下维度自由组合：
+
+**流大小分布 `FlowSizeDist`**：
+- `Fixed(u64)` — 固定大小
+- `Uniform { min, max }` — 均匀分布
+- `Pareto { min, shape }` — 重尾分布（数据中心典型）
+- `Bimodal { small, large, large_ratio }` — 双模态 mice/elephant
+
+**到达过程 `ArrivalProcess`**：
+- `Simultaneous(t)` — 同时开始
+- `FixedInterval { start, interval_ns }` — 固定间隔
+- `Poisson { start, mean_interval_ns }` — 泊松到达
+
+**通信对 `PairPattern`**：
+- `AllToAll` / `Permutation` / `RandomPairs(n)` / `Custom`
+
+### 5.3 Incast（遗留，仍可用）
 
 ```rust
 pub struct Incast {
@@ -216,13 +245,11 @@ pub struct Incast {
 }
 ```
 
-每个 sender 同时向 receiver 发 `bytes_per_sender` 字节，触发拥塞风暴。
-
-### 5.2 Ring AllReduce
+### 5.4 Ring AllReduce
 
 N 节点环形，2(N-1) 步，每步每节点发送 M/N 字节给下一节点。
 
-### 5.3 SimSummary
+### 5.5 SimSummary
 
 ```rust
 pub struct SimSummary {
@@ -315,11 +342,24 @@ match ev.kind {
 
 ---
 
-## 10. 未来扩展方向
+## 10. 待办事项
 
-- [ ] **可视化**：导出事件 trace → web 时序图（D3.js / matplotlib）
-- [ ] **更多 baseline**：DCQCN、HPCC、Swift
-- [ ] **并行仿真**：拆 actor 模型处理大规模拓扑
-- [ ] **真实流量**：CAIDA trace 重放
-- [ ] **CSV 导出 + Python 绘图脚本**
-- [ ] **失败注入**：链路故障、瞬时拥塞、bit error 模型
+### 🔴 高优先级
+
+- [ ] **CLI + 场景配置文件**：`clap` 依赖已加入但未使用；所有参数硬编码在源码中，需要 JSON/TOML 场景文件 + 命令行入口，让模拟器作为独立工具运行
+- [ ] **Dumbell / AllToAll / RingAllReduce 无端到端示例**：三个模块已实现但无 example 或集成测试调用，需要各写一个端到端 example（`examples/dumbell_demo.rs`、`allreduce_demo.rs`、`alltoall_demo.rs`）
+- [ ] **错误处理：替换裸 `unwrap()`**：`sim_runner.rs` 有 10 处，`nic/tx.rs` 有 6 处；一次 malformed event 就会 panic 整个仿真，应使用 `anyhow::Result` 或至少 graceful degradation
+
+### 🟡 中优先级
+
+- [ ] **更多 CC baseline**：实现完整 DCQCN（RTT-based rate control）、HPCC（INT-based）、Swift。当前 `Ecmp` 模式只是简化版 DCQCN（直接降窗，无 rate-based）
+- [ ] **故障注入**：`LinkFault` / `PacketCorruption` 事件类型，支持链路故障、瞬时拥塞、bit error 注入
+- [ ] **逐包 Trace 导出**：逐包事件时间线（send/arrive/ECN/drop/retx）导出为 JSON/CSV，配合 Python/Matplotlib 绘图脚本做可视化分析
+- [ ] **更细粒度监控**：逐流 FCT 打印、逐链路利用率时间序列、buffer 队列深度时间序列
+- [ ] **Dumbell 拓扑的端到端 example**：演示瓶颈链路拥塞场景下 ECMP vs STrack 对比
+
+### 🟢 低优先级
+
+- [ ] **网络层 Benchmark**：拓扑构建、CC 决策、包转发路径的 criterion bench（当前只有一个 DES 引擎 bench）
+- [ ] **并行仿真**：拆 actor 模型处理大规模拓扑（k=16+ FatTree，2048+ 主机）
+- [ ] **真实流量重放**：CAIDA trace 或其他真实数据中心 trace 重放
