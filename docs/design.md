@@ -348,7 +348,7 @@ match ev.kind {
 
 - [ ] **CLI + 场景配置文件**：`clap` 依赖已加入但未使用；所有参数硬编码在源码中，需要 JSON/TOML 场景文件 + 命令行入口，让模拟器作为独立工具运行
 - [ ] **Dumbell / AllToAll / RingAllReduce 无端到端示例**：三个模块已实现但无 example 或集成测试调用，需要各写一个端到端 example（`examples/dumbell_demo.rs`、`allreduce_demo.rs`、`alltoall_demo.rs`）
-- [ ] **错误处理：替换裸 `unwrap()`**：`sim_runner.rs` 有 10 处，`nic/tx.rs` 有 6 处；一次 malformed event 就会 panic 整个仿真，应使用 `anyhow::Result` 或至少 graceful degradation
+- [x] **错误处理：替换裸 `unwrap()`** ✅：已实现轻量判错系统（`src/error.rs`）。`SimRunner::new()` 返回 `SimResult`；Protocol 内部不变量使用 `expect()`；已守卫的 unwrap 改为模式匹配。生产代码中 12 处裸 unwrap 已全部消除。
 
 ### 🟡 中优先级
 

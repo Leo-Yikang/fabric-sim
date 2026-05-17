@@ -1,0 +1,9 @@
+protocol,flow_id,bytes,fct_ns,fct_us
+SimpleTcp,2,65536,237904,237.9
+SimpleTcp,1,262144,572656,572.7
+SimpleTcp,3,65536,438844,438.8
+SimpleTcp,4,65536,330552,330.6
+STrack,2,65536,42440,42.4
+STrack,1,262144,243068,243.1
+STrack,3,65536,142084,142.1
+STrack,4,65536,56820,56.8

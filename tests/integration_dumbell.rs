@@ -21,7 +21,8 @@ fn run_strack() -> strack_sim::monitor::SimSummary {
     let n = topo.num_hosts();
     let mut runner = SimRunner::new(topo, "strack".to_string(), |h, n_paths| {
         Box::new(STrackProtocol::new(h, STrackMode::Strack, n_paths))
-    });
+    })
+    .expect("SimRunner 初始化失败");
     let nodes: Vec<u32> = (0..n as u32).collect();
     let flows = AllToAll { nodes, bytes_per_pair: 16 * 1024, start_time_ns: 1000 }.generate();
     runner.inject_flows(flows);
@@ -34,7 +35,8 @@ fn run_tcp() -> strack_sim::monitor::SimSummary {
     let n = topo.num_hosts();
     let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _n_paths| {
         Box::new(SimpleTcp::new(h))
-    });
+    })
+    .expect("SimRunner 初始化失败");
     let nodes: Vec<u32> = (0..n as u32).collect();
     let flows = AllToAll { nodes, bytes_per_pair: 16 * 1024, start_time_ns: 1000 }.generate();
     runner.inject_flows(flows);

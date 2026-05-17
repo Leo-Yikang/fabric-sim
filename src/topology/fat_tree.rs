@@ -30,6 +30,8 @@ pub struct FatTree {
 impl FatTree {
     pub fn build(self) -> Topology {
         assert!(self.k % 2 == 0, "k 必须为偶数");
+        // 注：此断言是前置条件检查，k 为奇数时拓扑无定义，panic 是合理行为。
+        // 若后续接入 CLI，应在参数解析阶段提前校验并返回 SimError::Topology。
         let k = self.k as usize;
         let k_half = k / 2;
         let n_hosts = (k * k * k) / 4;

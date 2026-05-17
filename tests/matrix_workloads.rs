@@ -33,7 +33,8 @@ fn run_dumbell_tcp(
     let nodes: Vec<u32> = (0..n).collect();
     let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _n_paths| {
         Box::new(SimpleTcp::new(h))
-    });
+    })
+    .expect("SimRunner 初始化失败");
     let flows = Synthetic {
         nodes,
         pair_pattern: pair,
@@ -65,7 +66,8 @@ fn run_dumbell_strack(
     let nodes: Vec<u32> = (0..n).collect();
     let mut runner = SimRunner::new(topo, "strack".to_string(), |h, n_paths| {
         Box::new(STrackProtocol::new(h, STrackMode::Strack, n_paths))
-    });
+    })
+    .expect("SimRunner 初始化失败");
     let flows = Synthetic {
         nodes,
         pair_pattern: pair,
@@ -101,7 +103,8 @@ fn run_leafspine(
     let label = if mode == STrackMode::Ecmp { "ecmp" } else { "strack" };
     let mut runner = SimRunner::new(topo, label.to_string(), |h, n_paths| {
         Box::new(STrackProtocol::new(h, mode, n_paths))
-    });
+    })
+    .expect("SimRunner 初始化失败");
     let flows = Synthetic {
         nodes,
         pair_pattern: pair,
@@ -268,7 +271,8 @@ fn legacy_incast_with_synthetic_equivalent() {
     let n = topo.num_hosts() as u32;
     let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _n_paths| {
         Box::new(SimpleTcp::new(h))
-    });
+    })
+    .expect("SimRunner 初始化失败");
     let senders: Vec<u32> = (1..n).collect();
     let pairs: Vec<_> = senders.iter().map(|&s| (s, 0u32)).collect();
     let flows = Synthetic {
@@ -299,7 +303,8 @@ fn legacy_alltoall_with_synthetic_equivalent() {
     let n = topo.num_hosts() as u32;
     let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _n_paths| {
         Box::new(SimpleTcp::new(h))
-    });
+    })
+    .expect("SimRunner 初始化失败");
     let flows = Synthetic {
         nodes: (0..n).collect(),
         pair_pattern: PairPattern::AllToAll,

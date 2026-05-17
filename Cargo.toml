@@ -43,6 +43,10 @@ path = "examples/incast_compare.rs"
 name = "workload_sweep"
 path = "examples/workload_sweep.rs"
 
+[[example]]
+name = "multi_loss"
+path = "examples/tcp_limits/multi_loss.rs"
+
 [profile.release]
 lto = true
 codegen-units = 1

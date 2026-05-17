@@ -45,7 +45,7 @@ impl Mix {
         let mut all = Vec::new();
         // 按权重降序合并（权重大的优先，模拟 foreground traffic）
         let mut comps: Vec<_> = self.components.iter().collect();
-        comps.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap());
+        comps.sort_by(|a, b| b.weight.total_cmp(&a.weight));
 
         let mut next_fid: u32 = 0;
         for comp in comps {

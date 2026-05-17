@@ -140,7 +140,7 @@ impl SimpleTcp {
 
         for fid in flow_ids {
             let (cwnd, in_flight, mut next_seq, total, dst, mut retx) = {
-                let f = self.tx_flows.get(&fid).unwrap();
+                let f = self.tx_flows.get(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
                 (
                     f.cwnd,
                     f.in_flight,
@@ -154,7 +154,7 @@ impl SimpleTcp {
             // 检查超时重传
             let mut timeout_seqs: Vec<SeqNum> = Vec::new();
             {
-                let f = self.tx_flows.get(&fid).unwrap();
+                let f = self.tx_flows.get(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
                 for (seq, send_t) in &f.send_times {
                     if now.saturating_sub(*send_t) > self.rto_ns && !retx.contains(seq) {
                         timeout_seqs.push(*seq);
@@ -163,7 +163,7 @@ impl SimpleTcp {
             }
             if !timeout_seqs.is_empty() {
                 // RTO 超时：进入超时恢复
-                let f = self.tx_flows.get_mut(&fid).unwrap();
+                let f = self.tx_flows.get_mut(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
                 f.ssthresh = (f.cwnd / 2).max(self.min_cwnd);
                 f.cwnd = self.init_cwnd;
                 f.dup_ack_count = 0;
@@ -202,7 +202,7 @@ impl SimpleTcp {
                 next_seq += 1;
             }
 
-            let f = self.tx_flows.get_mut(&fid).unwrap();
+            let f = self.tx_flows.get_mut(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
             f.in_flight = new_inflight;
             f.next_seq = next_seq;
             f.retransmit_queue = retx;

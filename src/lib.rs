@@ -21,6 +21,7 @@
 //! ```
 
 pub mod core;
+pub mod error;
 pub mod network;
 pub mod nic;
 pub mod topology;

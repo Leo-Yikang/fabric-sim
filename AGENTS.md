@@ -70,6 +70,7 @@ RUST_LOG=debug cargo run --release --example des_demo
 ```
 src/
 ├── lib.rs              # crate 入口，导出全部模块，定义 SimTime / EntityId 类型别名
+├── error.rs            # SimError + SimResult（轻量判错系统，见第 11 节错误处理约定）
 ├── sim_runner.rs       # 端到端仿真主循环（核心 orchestrator）
 ├── core/               # 阶段一：DES 引擎（与网络概念完全解耦）
 │   ├── event.rs        # Event + EventKind（含全局原子 seq 保证 FIFO 稳定性）
@@ -248,11 +249,27 @@ A:
 3. 注意 `EntityId` 编号规则（hosts 从 0 开始连续，switches 接在后面）。
 4. 务必给每个 `Switch` 配置完整路由表（`routing.add(dst, port)`）。
 
-### Q: 我想把 `unwrap()` 替换成 `Result`
-A: 
-- **高优先级**：`sim_runner.rs` 的 `dispatch()` 中事件解析、`handle_tx_tick()` 中查找 uplink、`handle_arrive_at_host()` 中查找 uplink。
-- 建议做法：`SimRunner::dispatch()` 返回 `anyhow::Result<()>`，并在 `run()` 中用 `if let Err(e) = self.dispatch(ev) { log::error!(...) }` 捕获而非 panic。
-- `nic/tx.rs` 中 `try_send()` 的 `unwrap()` 可改为 `if let Some(f) = self.flows.get(&fid)` 模式。
+### Q: 项目使用什么错误处理约定？
+A: 项目使用**分层判错**策略（详见 `src/error.rs` 模块文档）：
+
+**第一层：对外 API 返回 `SimResult<T>`**
+- `SimRunner::new()` 返回 `SimResult<Self>` — 拓扑不一致（缺少 uplink、交换机缺失）时返回 `Err(SimError::Topology(...))`，调用方可以 graceful 处理。
+- `SimError` 定义在 `src/error.rs`，使用 `thiserror::Error` derive，当前有两个变体：`Topology` 和 `Init`。
+- 类型别名：`pub type SimResult<T> = Result<T, SimError>;`
+
+**第二层：内部不变量使用 `expect()`**
+- Protocol 实现（`strack.rs`、`tcp.rs`）中的 flow 查找使用 `.expect("invariant: 刚迭代的活跃流必存在于 tx_flows")`。
+- 这类失败意味着代码 bug 而非运行时异常 — 即时 panic 是合理行为（研究模拟器，非生产服务）。
+- **不修改 `Protocol` trait 签名**：trait 方法不返回 `Result`，避免全项目级联修改。
+
+**第三层：已守卫的 `unwrap()` 改写为模式匹配**
+- 典型模式：`if path.is_none() { break; } ... path.unwrap()` → `let Some(path) = self.pick_path(now) else { break; }; ... path`
+- 意图显式化，消除裸 unwrap。
+
+**第四层：测试代码**
+- 测试中的 `unwrap()` / `expect()` **完全允许**，不做修改。
+
+**新增代码时应遵循以上四层约定，禁止新增裸 `unwrap()`。**
 
 ---
 
@@ -260,5 +277,6 @@ A:
 
 - `README.md`：面向人类的快速开始与实测结果。
 - `docs/design.md`：四阶段完整设计文档、数据结构定义、实测数据、待办事项清单。
+- `src/error.rs`：判错系统设计文档（模块级注释说明分层策略与使用约定）。
 - `logs/README.md`：日志目录说明与日志级别控制指南。
 - STrack 论文：*"STrack: A Reliable Multipath Transport for AI/ML Clusters"* (Meta, NSDI'24)

@@ -189,7 +189,7 @@ impl STrackProtocol {
 
         for fid in flow_ids {
             let (cwnd, in_flight, mut next_seq, total, dst, mut retx) = {
-                let f = self.tx_flows.get(&fid).unwrap();
+                let f = self.tx_flows.get(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
                 (
                     f.cwnd,
                     f.in_flight,
@@ -203,7 +203,7 @@ impl STrackProtocol {
             // 检查超时重传
             let mut timeout_seqs: Vec<SeqNum> = Vec::new();
             {
-                let f = self.tx_flows.get(&fid).unwrap();
+                let f = self.tx_flows.get(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
                 for (seq, send_t) in &f.send_times {
                     if now.saturating_sub(*send_t) > self.rto_ns && !retx.contains(seq) {
                         timeout_seqs.push(*seq);
@@ -220,14 +220,13 @@ impl STrackProtocol {
             let mut retx_budget = cwnd as usize;
             while retx_budget > 0 && !retx.is_empty() {
                 let seq = retx.remove(0);
-                let path = self.pick_path(now);
-                if path.is_none() {
+                let Some(path) = self.pick_path(now) else {
                     break;
-                }
+                };
                 let pid = self.next_packet_id;
                 self.next_packet_id += 1;
                 let mut pkt = Packet::data(pid, fid, seq, self.host_id, dst, now);
-                pkt.routing_tag = path.unwrap() + 1;
+                pkt.routing_tag = path + 1;
                 to_send.push(pkt);
                 self.tx_stats.packets_retransmitted += 1;
                 self.tx_stats.packets_sent += 1;
@@ -236,14 +235,13 @@ impl STrackProtocol {
             }
 
             while new_inflight < cwnd && next_seq < total {
-                let path = self.pick_path(now);
-                if path.is_none() {
+                let Some(path) = self.pick_path(now) else {
                     break;
-                }
+                };
                 let pid = self.next_packet_id;
                 self.next_packet_id += 1;
                 let mut pkt = Packet::data(pid, fid, next_seq, self.host_id, dst, now);
-                pkt.routing_tag = path.unwrap().saturating_add(1);
+                pkt.routing_tag = path.saturating_add(1);
                 to_send.push(pkt);
                 self.tx_stats.packets_sent += 1;
                 new_inflight += 1;
@@ -251,7 +249,7 @@ impl STrackProtocol {
                 next_seq += 1;
             }
 
-            let f = self.tx_flows.get_mut(&fid).unwrap();
+            let f = self.tx_flows.get_mut(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
             f.in_flight = new_inflight;
             f.next_seq = next_seq;
             f.retransmit_queue = retx;

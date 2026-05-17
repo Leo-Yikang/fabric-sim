@@ -13,6 +13,7 @@
 //!                          → 如果是 Control，Protocol.on_tx_control() 触发 CC
 
 use crate::core::{Event, EventKind, Simulator};
+use crate::error::{SimError, SimResult};
 use crate::monitor::{FlowFct, SimSummary};
 use crate::network::{Packet, PacketKind};
 use crate::nic::Protocol;
@@ -50,7 +51,7 @@ impl SimRunner {
         topo: Topology,
         protocol_name: String,
         mut make_proto: impl FnMut(EntityId, u8) -> Box<dyn Protocol>,
-    ) -> Self {
+    ) -> SimResult<Self> {
         let mut protocols = HashMap::new();
         for &h in &topo.hosts {
             let edge_id = topo
@@ -58,8 +59,12 @@ impl SimRunner {
                 .iter()
                 .find(|u| u.host == h)
                 .map(|u| u.edge_switch)
-                .unwrap();
-            let edge_sw = topo.switches.iter().find(|s| s.id == edge_id).unwrap();
+                .ok_or_else(|| SimError::Topology(format!("主机 {} 缺少上行链路", h)))?;
+            let edge_sw = topo
+                .switches
+                .iter()
+                .find(|s| s.id == edge_id)
+                .ok_or_else(|| SimError::Topology(format!("交换机 {} 不存在于拓扑中", edge_id)))?;
             let mut remote_paths = 0u8;
             for other in &topo.hosts {
                 if *other == h {
@@ -73,7 +78,7 @@ impl SimRunner {
             protocols.insert(h, make_proto(h, n_paths));
         }
         let n_links = topo.links.len();
-        Self {
+        Ok(Self {
             sim: Simulator::new(),
             topo,
             protocols,
@@ -85,7 +90,7 @@ impl SimRunner {
             link_bytes_sent: 0,
             sim_start_ns: 0,
             tx_tick_ns: 200,
-        }
+        })
     }
 
     /// 注入流量

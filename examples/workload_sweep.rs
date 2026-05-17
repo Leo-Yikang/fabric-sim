@@ -41,7 +41,8 @@ fn run_case(case: &WorkloadCase) -> SimSummary {
     let nodes: Vec<u32> = (0..n).collect();
     let mut runner = SimRunner::new(topo, case.label.to_string(), |h, n_paths| {
         Box::new(STrackProtocol::new(h, STrackMode::Strack, n_paths))
-    });
+    })
+    .expect("SimRunner 初始化失败");
 
     let flows = Synthetic {
         nodes,
