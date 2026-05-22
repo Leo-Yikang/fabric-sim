@@ -16,8 +16,8 @@ fn run(mode: STrackMode) -> strack_sim::monitor::SimSummary {
     }.build();
     let n = topo.num_hosts();
     let proto_name = if mode == STrackMode::Ecmp { "ecmp" } else { "strack" };
-    let mut runner = SimRunner::new(topo, proto_name.to_string(), |h, n_paths| {
-        Box::new(STrackProtocol::new(h, mode, n_paths))
+    let mut runner = SimRunner::new(topo, proto_name.to_string(), |h, topo| {
+        Box::new(STrackProtocol::new(h, mode, topo))
     })
     .expect("SimRunner 初始化失败");
     let senders: Vec<u32> = (1..n as u32).collect();

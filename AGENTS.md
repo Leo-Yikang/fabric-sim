@@ -71,7 +71,10 @@ RUST_LOG=debug cargo run --release --example des_demo
 src/
 ├── lib.rs              # crate 入口，导出全部模块，定义 SimTime / EntityId 类型别名
 ├── error.rs            # SimError + SimResult（轻量判错系统，见第 11 节错误处理约定）
-├── sim_runner.rs       # 端到端仿真主循环（核心 orchestrator）
+├── sim_runner/          # 端到端仿真主循环（核心 orchestrator）
+│   ├── mod.rs           # SimRunner 结构体、初始化、事件分发、统计汇总
+│   ├── host.rs          # 主机侧：TxTick 驱动发送、PacketArrive 处理收包
+│   └── switch.rs        # 交换机侧：ingress 路由入队、egress 出队转发
 ├── core/               # 阶段一：DES 引擎（与网络概念完全解耦）
 │   ├── event.rs        # Event + EventKind（含全局原子 seq 保证 FIFO 稳定性）
 │   ├── queue.rs        # EventQueue（BinaryHeap 封装，反向 Ord 实现最小堆）
@@ -118,12 +121,13 @@ src/
 - 修改这些文件时，应优先使用 `anyhow::Result` 或 `Option` 做 graceful degradation，而不是新增 `unwrap()`。
 - 单元测试和集成测试中允许 `unwrap()` / `expect()`。
 
-### 5.4 事件编码约定
-`SimRunner` 使用 `EventKind::Custom(String)` 编码流量事件，格式为 colon-separated：
-- `FlowStart:{flow_id}:{src}:{dst}:{bytes}`
-- `TxTick:{host_id}`
-
-修改或新增事件类型时，务必保持此编码格式，并在 `sim_runner.rs` 的 `dispatch()` 方法中同步解析逻辑。
+### 5.4 事件类型约定
+`EventKind` 中 `FlowStart` 和 `TxTick` 已升级为结构化枚举变体（不再使用 `Custom(String)` 编码）：
+```rust
+FlowStart { flow_id: u32, src: EntityId, dst: EntityId, bytes: u64 }
+TxTick { host: EntityId }
+```
+`Custom(String)` 变体保留，仅用于单元测试、示例和基准测试。新增事件类型应优先定义为结构化变体，避免字符串解析。
 
 ### 5.5 可复现性
 - 所有随机数使用 `rand_pcg` + 显式 seed。

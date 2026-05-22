@@ -31,7 +31,7 @@ fn run_dumbell_tcp(
     .build();
     let n = topo.num_hosts() as u32;
     let nodes: Vec<u32> = (0..n).collect();
-    let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _n_paths| {
+    let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _topo| {
         Box::new(SimpleTcp::new(h))
     })
     .expect("SimRunner 初始化失败");
@@ -64,8 +64,8 @@ fn run_dumbell_strack(
     .build();
     let n = topo.num_hosts() as u32;
     let nodes: Vec<u32> = (0..n).collect();
-    let mut runner = SimRunner::new(topo, "strack".to_string(), |h, n_paths| {
-        Box::new(STrackProtocol::new(h, STrackMode::Strack, n_paths))
+    let mut runner = SimRunner::new(topo, "strack".to_string(), |h, topo| {
+        Box::new(STrackProtocol::new(h, STrackMode::Strack, topo))
     })
     .expect("SimRunner 初始化失败");
     let flows = Synthetic {
@@ -101,8 +101,8 @@ fn run_leafspine(
     let n = topo.num_hosts() as u32;
     let nodes: Vec<u32> = (0..n).collect();
     let label = if mode == STrackMode::Ecmp { "ecmp" } else { "strack" };
-    let mut runner = SimRunner::new(topo, label.to_string(), |h, n_paths| {
-        Box::new(STrackProtocol::new(h, mode, n_paths))
+    let mut runner = SimRunner::new(topo, label.to_string(), |h, topo| {
+        Box::new(STrackProtocol::new(h, mode, topo))
     })
     .expect("SimRunner 初始化失败");
     let flows = Synthetic {
@@ -269,7 +269,7 @@ fn legacy_incast_with_synthetic_equivalent() {
     }
     .build();
     let n = topo.num_hosts() as u32;
-    let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _n_paths| {
+    let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _topo| {
         Box::new(SimpleTcp::new(h))
     })
     .expect("SimRunner 初始化失败");
@@ -301,7 +301,7 @@ fn legacy_alltoall_with_synthetic_equivalent() {
     }
     .build();
     let n = topo.num_hosts() as u32;
-    let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _n_paths| {
+    let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _topo| {
         Box::new(SimpleTcp::new(h))
     })
     .expect("SimRunner 初始化失败");

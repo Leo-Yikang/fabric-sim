@@ -50,10 +50,12 @@ pub struct Event {
 
 pub enum EventKind {
     PacketArrive { packet_id: u64, src: EntityId },
-    PacketDepart { packet_id: u64, dst: EntityId },
+    PacketDepart { packet_id: u64, dst: EntityId, port: u8 },
     Timeout { timer_id: u64 },
     Stop,
-    Custom(String),  // SimRunner 用它编码 FlowStart / TxTick
+    FlowStart { flow_id: u32, src: EntityId, dst: EntityId, bytes: u64 },
+    TxTick { host: EntityId },
+    Custom(String),  // 仅用于测试/示例
 }
 ```
 
@@ -278,11 +280,11 @@ pub struct SimSummary {
 
 ```rust
 match ev.kind {
-    Custom("FlowStart:..") => tx_nic.start_flow + schedule TxTick,
-    Custom("TxTick:..")    => handle_tx_tick(host),
-    PacketArrive @ switch  => switch.ingress + try_egress,
-    PacketArrive @ host    => rx_nic.on_data / tx_nic.on_ack / on_nack,
-    PacketDepart           => try_egress 下一个包,
+    FlowStart { flow_id, src, dst, bytes } => proto.start_flow + schedule TxTick,
+    TxTick { host }   => handle_tx_tick(host),
+    PacketArrive @ switch => switch.ingress + try_egress,
+    PacketArrive @ host   => rx_nic.on_data / tx_nic.on_ack / on_nack,
+    PacketDepart      => try_egress 下一个包,
 }
 ```
 
@@ -321,10 +323,10 @@ match ev.kind {
 
 | 测试类型 | 数量 | 覆盖 |
 |---------|------|------|
-| 单元测试 | 21 | core/network/nic/topology 全部模块 |
-| 集成测试 | 4 | DES 百万事件 + 3 个端到端 Incast 场景 |
+| 单元测试 | 45 | core/network/nic/topology/traffic 全部模块 |
+| 集成测试 | 13 | DES 百万事件 + 端到端 Incast/Dumbell + 矩阵工作负载 |
 | 文档测试 | 1 | crate-level 用法示例 |
-| **合计** | **26** | **全部通过** ✅ |
+| **合计** | **59** | **全部通过** ✅ |
 
 ---
 

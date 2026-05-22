@@ -53,9 +53,9 @@ fn run_one(label: &str, mode: STrackMode, use_strack: bool) -> RunResult {
     }
     .build();
 
-    let mut runner = SimRunner::new(topo, label.to_string(), move |h, n_paths| {
+    let mut runner = SimRunner::new(topo, label.to_string(), move |h, topo| {
         if use_strack {
-            Box::new(STrackProtocol::new(h, mode, n_paths))
+            Box::new(STrackProtocol::new(h, mode, topo))
         } else {
             Box::new(SimpleTcp::new(h))
         }

@@ -23,8 +23,8 @@ fn run_one(mode: STrackMode, label: &str) {
     }.build();
 
     let n_hosts = topo.num_hosts();
-    let mut runner = SimRunner::new(topo, label.to_string(), |h, n_paths| {
-        Box::new(STrackProtocol::new(h, mode, n_paths))
+    let mut runner = SimRunner::new(topo, label.to_string(), |h, topo| {
+        Box::new(STrackProtocol::new(h, mode, topo))
     })
     .expect("SimRunner 初始化失败");
 

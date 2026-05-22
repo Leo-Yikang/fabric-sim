@@ -7,6 +7,7 @@
 
 use super::protocol::{Protocol, ProtocolStats};
 use crate::network::packet::{FlowId, Packet, SeqNum, MTU_BYTES};
+use crate::topology::Topology;
 use crate::EntityId;
 use std::collections::HashMap;
 
@@ -147,7 +148,48 @@ pub struct STrackProtocol {
 }
 
 impl STrackProtocol {
-    pub fn new(host_id: EntityId, mode: STrackMode, n_paths: u8) -> Self {
+    pub fn new(host_id: EntityId, mode: STrackMode, topo: &Topology) -> Self {
+        let n_paths = topo
+            .host_uplink
+            .iter()
+            .find(|u| u.host == host_id)
+            .and_then(|u| topo.switches.iter().find(|s| s.id == u.edge_switch))
+            .map(|edge_sw| {
+                let mut max_paths = 1u8;
+                for other in &topo.hosts {
+                    if *other == host_id {
+                        continue;
+                    }
+                    if let Some(p) = edge_sw.routing.ports_for(*other) {
+                        max_paths = max_paths.max(p.len() as u8);
+                    }
+                }
+                max_paths
+            })
+            .unwrap_or(1);
+        let paths = (0..n_paths).map(PathState::new).collect();
+        Self {
+            host_id,
+            mode,
+            paths,
+            paths_rr_cursor: 0,
+            tx_flows: HashMap::new(),
+            rx_flows: HashMap::new(),
+            tx_stats: TxStats::default(),
+            rx_stats: RxStats::default(),
+            next_packet_id: 1,
+            init_cwnd: 16,
+            max_cwnd: 256,
+            min_cwnd: 1,
+            blacklist_duration_ns: 50_000,
+            rto_ns: 100_000,
+            finished: Vec::new(),
+        }
+    }
+
+    /// 测试用：直接指定路径数，跳过拓扑解析
+    #[cfg(test)]
+    pub(crate) fn with_path_count(host_id: EntityId, mode: STrackMode, n_paths: u8) -> Self {
         let paths = (0..n_paths).map(PathState::new).collect();
         Self {
             host_id,
@@ -487,7 +529,7 @@ mod tests {
 
     #[test]
     fn rx_in_order_delivery() {
-        let mut proto = STrackProtocol::new(99, STrackMode::Ecmp, 1);
+        let mut proto = STrackProtocol::with_path_count(99, STrackMode::Ecmp, 1);
         for s in 0..10u32 {
             let pkt = Packet::data(s as u64, 0, s, 1, 99, 0);
             let outs = proto.on_data(&pkt, 0);
@@ -499,7 +541,7 @@ mod tests {
 
     #[test]
     fn rx_out_of_order_then_fill_gap() {
-        let mut proto = STrackProtocol::new(99, STrackMode::Ecmp, 1);
+        let mut proto = STrackProtocol::with_path_count(99, STrackMode::Ecmp, 1);
         for s in [0u32, 2, 3, 1] {
             let pkt = Packet::data(s as u64, 0, s, 1, 99, 0);
             proto.on_data(&pkt, 0);
@@ -510,7 +552,7 @@ mod tests {
 
     #[test]
     fn rx_handles_duplicate() {
-        let mut proto = STrackProtocol::new(99, STrackMode::Ecmp, 1);
+        let mut proto = STrackProtocol::with_path_count(99, STrackMode::Ecmp, 1);
         for _ in 0..3 {
             let pkt = Packet::data(0, 0, 0, 1, 99, 0);
             proto.on_data(&pkt, 0);
@@ -523,7 +565,7 @@ mod tests {
 
     #[test]
     fn tx_sends_packets_up_to_cwnd() {
-        let mut proto = STrackProtocol::new(1, STrackMode::Ecmp, 1);
+        let mut proto = STrackProtocol::with_path_count(1, STrackMode::Ecmp, 1);
         proto.start_flow(0, 2, 1024 * 100, 0); // 100 个包
         let pkts = proto.on_tx_tick(0);
         assert_eq!(pkts.len() as u32, proto.init_cwnd);
@@ -531,7 +573,7 @@ mod tests {
 
     #[test]
     fn tx_ack_advances_window() {
-        let mut proto = STrackProtocol::new(1, STrackMode::Ecmp, 1);
+        let mut proto = STrackProtocol::with_path_count(1, STrackMode::Ecmp, 1);
         proto.start_flow(0, 2, 1024 * 100, 0);
         let _ = proto.on_tx_tick(0);
         // ACK 前 cwnd 个包
@@ -544,7 +586,7 @@ mod tests {
 
     #[test]
     fn tx_ecn_reduces_cwnd() {
-        let mut proto = STrackProtocol::new(1, STrackMode::Ecmp, 1);
+        let mut proto = STrackProtocol::with_path_count(1, STrackMode::Ecmp, 1);
         proto.start_flow(0, 2, 1024 * 100, 0);
         let _ = proto.on_tx_tick(0);
         let ack = Packet::control(1000, 0, 16, 2, 1, true, 0, Vec::new(), 1000);
@@ -555,7 +597,7 @@ mod tests {
 
     #[test]
     fn tx_nack_triggers_retransmit() {
-        let mut proto = STrackProtocol::new(1, STrackMode::Ecmp, 1);
+        let mut proto = STrackProtocol::with_path_count(1, STrackMode::Ecmp, 1);
         proto.start_flow(0, 2, 1024 * 10, 0);
         let _ = proto.on_tx_tick(0);
         // 构造 NACK：缺失 seq 1

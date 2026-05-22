@@ -24,7 +24,11 @@ pub enum EventKind {
     Timeout { timer_id: u64 },
     /// 仿真停止
     Stop,
-    /// 用户自定义占位事件（用于引擎单元测试）
+    /// 流量注入：向源主机协议栈注册一条新流
+    FlowStart { flow_id: u32, src: EntityId, dst: EntityId, bytes: u64 },
+    /// 发送端定时 tick：驱动协议栈检查发送窗口 / 超时重传
+    TxTick { host: EntityId },
+    /// 用户自定义占位事件（用于引擎单元测试与示例）
     Custom(String),
 }
 

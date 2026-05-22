@@ -19,8 +19,8 @@ fn make_dumbell() -> Dumbell {
 fn run_strack() -> strack_sim::monitor::SimSummary {
     let topo = make_dumbell().build();
     let n = topo.num_hosts();
-    let mut runner = SimRunner::new(topo, "strack".to_string(), |h, n_paths| {
-        Box::new(STrackProtocol::new(h, STrackMode::Strack, n_paths))
+    let mut runner = SimRunner::new(topo, "strack".to_string(), |h, topo| {
+        Box::new(STrackProtocol::new(h, STrackMode::Strack, topo))
     })
     .expect("SimRunner 初始化失败");
     let nodes: Vec<u32> = (0..n as u32).collect();
@@ -33,7 +33,7 @@ fn run_strack() -> strack_sim::monitor::SimSummary {
 fn run_tcp() -> strack_sim::monitor::SimSummary {
     let topo = make_dumbell().build();
     let n = topo.num_hosts();
-    let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _n_paths| {
+    let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _topo| {
         Box::new(SimpleTcp::new(h))
     })
     .expect("SimRunner 初始化失败");
