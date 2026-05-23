@@ -19,6 +19,7 @@ use crate::network::Packet;
 use crate::nic::Protocol;
 use crate::topology::Topology;
 use crate::traffic::FlowDesc;
+use crate::training::CollectivePlan;
 use crate::viz::TimeSeriesSampler;
 use crate::EntityId;
 
@@ -109,8 +110,8 @@ pub struct SimRunner {
     /// u64::MAX 表示没有待处理的 Timeout。
     /// 用于在 ACK 提前到达时逻辑取消冗余 Timeout（P1 修复）。
     pending_timeout_deadline: Vec<u64>,
-    /// P2：TrainingJob 产生的 flow 边界 [start_fid, end_fid)，每个元素对应一个 CollectiveOp
-    training_boundaries: Vec<(u32, u32)>,
+    /// P2：TrainingJob 产生的 collective 计划
+    training_collectives: Vec<CollectivePlan>,
     /// P2：每个 iteration 包含多少个 collective
     collectives_per_iteration: Vec<usize>,
     /// P2：Training 级别指标（仅在注入 TrainingJob 时填充）
@@ -154,7 +155,7 @@ impl SimRunner {
             last_event_time: u64::MAX,
             max_same_time_burst: 0,
             pending_timeout_deadline: vec![u64::MAX; n_hosts],
-            training_boundaries: Vec::new(),
+            training_collectives: Vec::new(),
             collectives_per_iteration: Vec::new(),
             training_metrics: crate::training::TrainingMetrics::default(),
         })
@@ -194,37 +195,42 @@ impl SimRunner {
     }
 
     /// P2：注入 TrainingJob，同时记录 collective 边界用于后续指标计算
-    pub fn inject_training_job(
-        &mut self,
-        job: &crate::training::TrainingJob,
-    ) {
-        let (flows, boundaries, collectives_per_iteration) = job.generate();
-        self.training_boundaries = boundaries;
-        self.collectives_per_iteration = collectives_per_iteration;
+    pub fn inject_training_job(&mut self, job: &crate::training::TrainingJob) {
+        let plan = job.plan();
+        self.training_collectives = plan.collectives;
+        self.collectives_per_iteration = plan.collectives_per_iteration;
         self.training_metrics.job_name.clone_from(&job.name);
         self.training_metrics.total_iterations = job.iterations.len() as u32;
-        self.training_metrics.collective_labels = job
-            .iterations
+        self.training_metrics.collective_labels = self
+            .training_collectives
             .iter()
-            .flat_map(|iter| {
-                iter.collectives.iter().map(|c| {
-                    format!(
-                        "iter={} {}-{}",
-                        iter.iter_id,
-                        format!("{:?}", c.kind).to_lowercase(),
-                        format!("{:?}", c.algorithm).to_lowercase()
-                    )
-                })
+            .map(|c| {
+                format!(
+                    "iter={} {}-{}",
+                    c.iter_id,
+                    format!("{:?}", c.kind).to_lowercase(),
+                    format!("{:?}", c.algorithm).to_lowercase()
+                )
             })
             .collect();
-        self.inject_flows(flows);
+        self.training_metrics.collective_planned_ns = self
+            .training_collectives
+            .iter()
+            .map(|c| c.planned_end_ns.saturating_sub(c.planned_start_ns))
+            .collect();
+        self.training_metrics.collective_completion_ns.clear();
+        self.training_metrics.collective_completed.clear();
+        self.training_metrics.iteration_times_ns.clear();
+        self.training_metrics.completed_iterations = 0;
+        self.inject_flows(plan.flows);
     }
 
     /// 跑到所有事件处理完，或达到 max_time
     pub fn run(&mut self, max_time_ns: u64) {
         while let Some(ev) = self.sim_pop_until(max_time_ns) {
             self.dispatch(ev);
-            self.sampler.maybe_sample(self.sim.now(), &self.link_bytes_sent, &self.topo);
+            self.sampler
+                .maybe_sample(self.sim.now(), &self.link_bytes_sent, &self.topo);
         }
         self.sim_start_ns = 0;
     }
@@ -240,7 +246,8 @@ impl SimRunner {
         let mut next_report_ns = progress_interval_ns;
         while let Some(ev) = self.sim_pop_until(max_time_ns) {
             self.dispatch(ev);
-            self.sampler.maybe_sample(self.sim.now(), &self.link_bytes_sent, &self.topo);
+            self.sampler
+                .maybe_sample(self.sim.now(), &self.link_bytes_sent, &self.topo);
             let now = self.sim.now();
             if now >= next_report_ns {
                 let pending = self.sim.pending();
@@ -297,11 +304,8 @@ impl SimRunner {
                 if let Some(proto) = self.protocols.get_mut(src as usize) {
                     proto.start_flow(flow_id, dst, bytes, ev.time);
                 }
-                self.sim.schedule(Event::new(
-                    ev.time,
-                    EventKind::TxTick { host: src },
-                    src,
-                ));
+                self.sim
+                    .schedule(Event::new(ev.time, EventKind::TxTick { host: src }, src));
             }
             EventKind::TxTick { host } => {
                 self.handle_tx_tick(host, ev.time);
@@ -356,12 +360,8 @@ impl SimRunner {
 
     /// 输出仿真摘要
     pub fn summarize(&mut self) -> SimSummary {
-        let mut fct_list: Vec<FlowFct> = self
-            .fcts
-            .iter()
-            .copied()
-            .filter(|f| f.bytes > 0)
-            .collect();
+        let mut fct_list: Vec<FlowFct> =
+            self.fcts.iter().copied().filter(|f| f.bytes > 0).collect();
         let total_flows = fct_list.len() as u64;
         let mut summary = SimSummary::from_fcts(&self.protocol_name, &mut fct_list);
         summary.total_flows = total_flows;
@@ -389,7 +389,8 @@ impl SimRunner {
                 .sum();
             let total_capacity_bytes = total_bw_capacity_per_ns * summary.total_time_ns as f64;
             if total_capacity_bytes > 0.0 {
-                summary.avg_link_util = (self.link_bytes_sent.iter().sum::<u64>() as f64) / total_capacity_bytes;
+                summary.avg_link_util =
+                    (self.link_bytes_sent.iter().sum::<u64>() as f64) / total_capacity_bytes;
             }
         }
         // P1 可观测性：填充运行剖面
@@ -397,62 +398,77 @@ impl SimRunner {
         summary.profile.max_pending_events = self.max_pending;
         summary.profile.max_same_time_burst = self.max_same_time_burst;
 
-        // P2：计算 Training 指标（如果有 training_boundaries）
+        // P2：计算 Training 指标（如果有 training_collectives）
         self.compute_training_metrics();
         summary
     }
 
-    /// P2：根据 training_boundaries 和 fcts 计算 collective/iteration 完成时间
+    /// P2：根据 training_collectives 和 fcts 计算 collective/iteration 完成时间
     fn compute_training_metrics(&mut self) {
-        if self.training_boundaries.is_empty() {
+        if self.training_collectives.is_empty() {
             return;
         }
 
-        let mut collective_times = Vec::with_capacity(self.training_boundaries.len());
+        let mut collective_times = Vec::with_capacity(self.training_collectives.len());
+        let mut collective_completed = Vec::with_capacity(self.training_collectives.len());
         let mut iteration_times = Vec::new();
 
         let mut boundary_idx = 0usize;
         for &num_collectives in &self.collectives_per_iteration {
             let mut iter_start: Option<u64> = None;
             let mut iter_finish: u64 = 0;
+            let mut iter_completed = num_collectives > 0;
 
             for _ in 0..num_collectives {
-                if boundary_idx >= self.training_boundaries.len() {
+                if boundary_idx >= self.training_collectives.len() {
                     break;
                 }
-                let (start_fid, end_fid) = self.training_boundaries[boundary_idx];
+                let collective = &self.training_collectives[boundary_idx];
+                let (start_fid, end_fid) = collective.flow_range;
                 boundary_idx += 1;
 
                 let mut collective_start = u64::MAX;
                 let mut collective_finish = 0u64;
                 let mut has_flow = false;
+                let mut all_done = true;
 
                 for fid in start_fid..end_fid {
                     let idx = fid as usize;
                     if idx < self.fcts.len() && self.fcts[idx].bytes > 0 {
                         has_flow = true;
                         collective_start = collective_start.min(self.fcts[idx].start_ns);
+                        if self.fcts[idx].finish_ns == 0 {
+                            all_done = false;
+                        }
                         collective_finish = collective_finish.max(self.fcts[idx].finish_ns);
+                    } else {
+                        all_done = false;
                     }
                 }
 
-                if has_flow {
+                if has_flow && all_done {
                     let completion = collective_finish.saturating_sub(collective_start);
                     collective_times.push(completion);
+                    collective_completed.push(true);
                     iter_start = Some(iter_start.unwrap_or(collective_start).min(collective_start));
                     iter_finish = iter_finish.max(collective_finish);
                 } else {
                     collective_times.push(0);
+                    collective_completed.push(false);
+                    iter_completed = false;
                 }
             }
 
-            if let Some(start) = iter_start {
-                iteration_times.push(iter_finish.saturating_sub(start));
+            if iter_completed {
+                if let Some(start) = iter_start {
+                    iteration_times.push(iter_finish.saturating_sub(start));
+                }
             }
         }
 
         self.training_metrics.completed_iterations = iteration_times.len() as u32;
         self.training_metrics.iteration_times_ns = iteration_times;
         self.training_metrics.collective_completion_ns = collective_times;
+        self.training_metrics.collective_completed = collective_completed;
     }
 }

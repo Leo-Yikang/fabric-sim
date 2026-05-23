@@ -17,7 +17,9 @@ impl EventQueue {
     }
 
     pub fn with_capacity(cap: usize) -> Self {
-        Self { heap: Vec::with_capacity(cap) }
+        Self {
+            heap: Vec::with_capacity(cap),
+        }
     }
 
     /// 插入事件
@@ -54,6 +56,30 @@ impl EventQueue {
 
     pub fn is_empty(&self) -> bool {
         self.heap.is_empty()
+    }
+
+    /// 移除所有匹配 predicate 的事件。
+    /// 内部需要重建堆，复杂度 O(n)。
+    pub fn cancel_where(&mut self, predicate: impl Fn(&Event) -> bool) -> usize {
+        let before = self.heap.len();
+        self.heap.retain(|ev| !predicate(ev));
+        let removed = before - self.heap.len();
+        if removed > 0 {
+            self.heapify();
+        }
+        removed
+    }
+
+    /// 批量重建堆（O(n)）
+    fn heapify(&mut self) {
+        let len = self.heap.len();
+        if len <= 1 {
+            return;
+        }
+        let last_parent = (len - 2) / 4;
+        for i in (0..=last_parent).rev() {
+            self.sift_down(i);
+        }
     }
 
     /// Event 的 Ord 是为 BinaryHeap（最大堆）反向实现的；
@@ -141,5 +167,79 @@ mod tests {
         assert_eq!(a.seq, e1.seq);
         assert_eq!(b.seq, e2.seq);
         assert_eq!(c.seq, e3.seq);
+    }
+
+    #[test]
+    fn cancel_where_removes_matching() {
+        let mut q = EventQueue::new();
+        for t in [100u64, 200, 300, 400, 500] {
+            q.push(Event::new(t, EventKind::Custom("x".into()), 0));
+        }
+        let removed = q.cancel_where(|ev| ev.time >= 300);
+        assert_eq!(removed, 3);
+        assert_eq!(q.len(), 2);
+        let a = q.pop().unwrap();
+        let b = q.pop().unwrap();
+        assert_eq!(a.time, 100);
+        assert_eq!(b.time, 200);
+    }
+
+    #[test]
+    fn cancel_where_preserves_order() {
+        let mut q = EventQueue::new();
+        for t in [500u64, 100, 400, 200, 300] {
+            q.push(Event::new(t, EventKind::Custom("x".into()), 0));
+        }
+        // 移除时间 > 300 的
+        q.cancel_where(|ev| ev.time > 300);
+        let mut prev = 0u64;
+        while let Some(ev) = q.pop() {
+            assert!(ev.time >= prev);
+            prev = ev.time;
+        }
+        assert_eq!(prev, 300);
+    }
+
+    #[test]
+    fn cancel_where_none_matching_preserves_all() {
+        let mut q = EventQueue::new();
+        for t in [100u64, 200, 300] {
+            q.push(Event::new(t, EventKind::Custom("x".into()), 0));
+        }
+        let removed = q.cancel_where(|ev| ev.time > 999);
+        assert_eq!(removed, 0);
+        assert_eq!(q.len(), 3);
+    }
+
+    #[test]
+    fn cancel_where_removes_all() {
+        let mut q = EventQueue::new();
+        for t in [100u64, 200, 300] {
+            q.push(Event::new(t, EventKind::Custom("x".into()), 0));
+        }
+        let removed = q.cancel_where(|_| true);
+        assert_eq!(removed, 3);
+        assert!(q.is_empty());
+        assert!(q.pop().is_none());
+    }
+
+    #[test]
+    fn cancel_where_preserves_fifo_for_same_time() {
+        let mut q = EventQueue::new();
+        let e1 = Event::new(100, EventKind::Custom("keep1".into()), 0);
+        let e2 = Event::new(100, EventKind::Custom("drop".into()), 0);
+        let e3 = Event::new(100, EventKind::Custom("keep2".into()), 0);
+        q.push(e3.clone());
+        q.push(e2.clone());
+        q.push(e1.clone());
+
+        let removed = q.cancel_where(|ev| matches!(&ev.kind, EventKind::Custom(s) if s == "drop"));
+        assert_eq!(removed, 1);
+
+        let a = q.pop().unwrap();
+        let b = q.pop().unwrap();
+        assert_eq!(a.seq, e1.seq);
+        assert_eq!(b.seq, e3.seq);
+        assert!(q.pop().is_none());
     }
 }

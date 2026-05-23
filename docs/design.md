@@ -451,13 +451,20 @@ cargo run --release --example incast_compare
 - pipeline bubble。
 - tensor/model/data/expert parallel 的组合。
 
-当前模型只有 `FlowDesc { src, dst, bytes, start_time }`，缺少：
+当前模型已经有 `TrainingJob` / `Iteration` / `CollectiveOp`，并能静态展开为
+`FlowDesc { src, dst, bytes, start_time }`。P2 后的能力包括：
 
 - iteration 结构。
+- collective 顺序计划。
+- `compute_delay_ns` 对 iteration 起点的推进。
+- Ring / ReduceScatter+AllGather / Tree 的计划展开。
+- collective completion time 与 iteration time 指标。
+
+仍然缺少：
+
 - compute 与 communication overlap。
-- collective operation DAG。
+- 运行时 collective operation DAG。
 - barrier 和依赖关系。
-- coflow 完成时间。
 - 多 job 共存和调度。
 - rank placement 对通信矩阵的影响。
 
@@ -480,10 +487,15 @@ cargo run --release --example incast_compare
 - NCCL channel 并行。
 - topology-aware collective。
 
+当前已有：
+
+- `ChunkConfig { chunk_size_bytes, num_channels, pipeline_depth }`。
+- 显式 chunking：一个逻辑 edge 可拆成多条 flow。
+- channel 并行：同一 wave 中可同时启动多个 chunk。
+- pipeline overlap：step 间隔按 pipeline depth 压缩，用于近似流水重叠。
+
 当前缺口：
 
-- 没有 channel 概念。
-- 没有 chunking 和 pipelining。
 - 没有 intra-node NVLink/NVSwitch 与 inter-node fabric 的两级通信。
 - 没有 rank 到 host/GPU/NIC 的映射。
 

@@ -52,10 +52,11 @@ impl SimRunner {
                 } else {
                     return;
                 };
-                let (link_id, edge_switch) = match self.topo.host_uplink.iter().find(|u| u.host == host) {
-                    Some(u) => (u.link_to_switch, u.edge_switch),
-                    None => return,
-                };
+                let (link_id, edge_switch) =
+                    match self.topo.host_uplink.iter().find(|u| u.host == host) {
+                        Some(u) => (u.link_to_switch, u.edge_switch),
+                        None => return,
+                    };
                 for ret in returns {
                     let size = ret.size;
                     let pid = self.packet_buf_insert(ret);
@@ -100,33 +101,54 @@ impl SimRunner {
     /// 而不是固定 tick_delay，避免 rate-based 协议的大量空转 TxTick。
     fn schedule_host_next_action(&mut self, host: EntityId, now: u64, tick_delay: u64) {
         let host_idx = host as usize;
-        if let Some(proto) = self.protocols.get(host_idx) {
-            if proto.has_pending_work() {
-                // 有工作要做：逻辑取消任何已调度的 Timeout
-                self.pending_timeout_deadline[host_idx] = u64::MAX;
+        let Some((has_pending_work, next_tx_time, next_rto_deadline)) =
+            self.protocols.get(host_idx).map(|proto| {
+                (
+                    proto.has_pending_work(),
+                    proto.next_tx_time(),
+                    proto.next_rto_deadline(),
+                )
+            })
+        else {
+            return;
+        };
 
-                // P3：pacing-aware 调度
-                let next_tick = proto.next_tx_time().unwrap_or(now + tick_delay);
-                let scheduled_time = next_tick.max(now);
-                self.sim.schedule(Event::new(
-                    scheduled_time,
-                    EventKind::TxTick { host },
-                    host,
-                ));
-            } else if let Some(deadline) = proto.next_rto_deadline() {
-                // 无工作但有未确认包：需要 Timeout。
-                // 如果已经有一个更早或相同的 Timeout 在队列中，不再重复调度。
-                let existing = self.pending_timeout_deadline[host_idx];
-                if existing != u64::MAX && existing <= deadline {
-                    return;
-                }
-                self.pending_timeout_deadline[host_idx] = deadline;
-                self.sim.schedule(Event::new(
-                    deadline,
-                    EventKind::Timeout { timer_id: 0 },
-                    host,
-                ));
+        if has_pending_work {
+            // 有工作要做：逻辑取消任何已调度的 Timeout
+            self.pending_timeout_deadline[host_idx] = u64::MAX;
+            self.cancel_host_timeouts(host);
+
+            // P3：pacing-aware 调度
+            let next_tick = next_tx_time.unwrap_or(now + tick_delay);
+            let scheduled_time = next_tick.max(now);
+            self.sim
+                .schedule(Event::new(scheduled_time, EventKind::TxTick { host }, host));
+        } else if let Some(deadline) = next_rto_deadline {
+            // 无工作但有未确认包：需要 Timeout。
+            // 如果已经有一个更早或相同的 Timeout 在队列中，不再重复调度。
+            let existing = self.pending_timeout_deadline[host_idx];
+            if existing != u64::MAX && existing <= deadline {
+                return;
             }
+            self.cancel_host_timeouts(host);
+            self.pending_timeout_deadline[host_idx] = deadline;
+            self.sim.schedule(Event::new(
+                deadline,
+                EventKind::Timeout { timer_id: 0 },
+                host,
+            ));
+        } else {
+            self.pending_timeout_deadline[host_idx] = u64::MAX;
+            self.cancel_host_timeouts(host);
         }
+    }
+
+    /// 清理某 host 尚未触发的 Timeout 事件。
+    ///
+    /// `pending_timeout_deadline` 已经能逻辑跳过过时 Timeout；这里进一步从事件队列中
+    /// 物理删除，避免大规模仿真里积累无效定时器。
+    fn cancel_host_timeouts(&mut self, host: EntityId) -> usize {
+        self.sim
+            .cancel_where(|ev| ev.target == host && matches!(ev.kind, EventKind::Timeout { .. }))
     }
 }

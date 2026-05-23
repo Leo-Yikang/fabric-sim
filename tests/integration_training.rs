@@ -1,6 +1,6 @@
 //! P2 集成测试：TrainingJob + CollectiveOp 端到端验证
 
-use strack_sim::nic::{STrackProtocol, STrackMode};
+use strack_sim::nic::{STrackMode, STrackProtocol};
 use strack_sim::sim_runner::SimRunner;
 use strack_sim::topology::Dumbell;
 use strack_sim::training::{
@@ -49,9 +49,14 @@ fn training_job_ring_allreduce_completes() {
     runner.inject_training_job(&job);
     runner.run(10_000_000);
     let summary = runner.summarize();
-    assert_eq!(summary.total_flows, 8 * 7 * 2, "Ring AllReduce 应产生 2*(N-1)*N 条流");
+    assert_eq!(
+        summary.total_flows,
+        8 * 7 * 2 * 2,
+        "Ring AllReduce 应产生 chunk 后的流"
+    );
     assert_eq!(summary.completed_flows, summary.total_flows, "所有流应完成");
     assert_eq!(runner.training_metrics.completed_iterations, 1);
+    assert_eq!(runner.training_metrics.collective_completed, vec![true]);
     assert!(!runner.training_metrics.iteration_times_ns.is_empty());
     assert!(
         runner.training_metrics.iteration_times_ns[0] > 0,
@@ -85,7 +90,7 @@ fn training_job_reduce_scatter_all_gather_completes() {
     runner.inject_training_job(&job);
     runner.run(10_000_000);
     let summary = runner.summarize();
-    assert_eq!(summary.total_flows, 8 * 7 * 2);
+    assert_eq!(summary.total_flows, 8 * 7 * 2 * 2);
     assert_eq!(summary.completed_flows, summary.total_flows);
     assert_eq!(runner.training_metrics.completed_iterations, 1);
 }
@@ -117,8 +122,8 @@ fn training_job_tree_completes() {
     runner.run(10_000_000);
     let summary = runner.summarize();
     // Tree AllReduce: 2*(N-1) flows for power-of-two
-    assert_eq!(summary.total_flows, 14);
-    assert_eq!(summary.completed_flows, 14);
+    assert_eq!(summary.total_flows, 28);
+    assert_eq!(summary.completed_flows, 28);
     assert_eq!(runner.training_metrics.completed_iterations, 1);
 }
 
@@ -196,4 +201,35 @@ fn training_job_multiple_collectives_per_iteration() {
     assert_eq!(summary.completed_flows, summary.total_flows);
     assert_eq!(runner.training_metrics.completed_iterations, 1);
     assert_eq!(runner.training_metrics.collective_completion_ns.len(), 2);
+}
+
+#[test]
+fn training_job_compute_delay_affects_flow_start() {
+    let mut runner = make_runner();
+    let nodes: Vec<u32> = (0..4).collect();
+    let job = TrainingJob {
+        name: "test_compute_delay".to_string(),
+        nodes: nodes.clone(),
+        iterations: vec![Iteration {
+            iter_id: 0,
+            compute_delay_ns: 50_000,
+            collectives: vec![CollectiveOp {
+                kind: CollectiveKind::AllReduce,
+                algorithm: CollectiveAlgorithm::Ring,
+                nodes,
+                message_bytes: 256 * 1024,
+                chunk_config: ChunkConfig::default(),
+            }],
+        }],
+    };
+    runner.inject_training_job(&job);
+    runner.run(10_000_000);
+    let summary = runner.summarize();
+    assert_eq!(summary.completed_flows, summary.total_flows);
+    assert!(runner
+        .fcts
+        .iter()
+        .filter(|f| f.bytes > 0)
+        .all(|f| f.start_ns >= 50_000));
+    assert_eq!(runner.training_metrics.completed_iterations, 1);
 }
