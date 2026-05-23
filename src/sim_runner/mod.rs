@@ -50,7 +50,7 @@ impl PacketSlab {
             self.slots.push(Some(pkt));
             id
         };
-        if let Some(Some(ref mut p)) = self.slots.get_mut(id as usize) {
+            if let Some(Some(ref mut p)) = self.slots.get_mut(id as usize) {
             p.id = id;
         }
         id
