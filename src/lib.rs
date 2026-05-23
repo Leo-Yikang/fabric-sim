@@ -26,6 +26,7 @@ pub mod network;
 pub mod nic;
 pub mod topology;
 pub mod traffic;
+pub mod training;
 pub mod monitor;
 pub mod sim_runner;
 pub mod viz;

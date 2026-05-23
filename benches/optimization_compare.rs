@@ -94,7 +94,7 @@ fn make_event(i: u64) -> Event {
 }
 
 fn make_packet(i: u64) -> Packet {
-    Packet::data(i, (i % 4096) as u32, (i % 65_536) as u32, 1, 2, i)
+    Packet::data(i, 0, (i % 4096) as u32, (i % 65_536) as u32, 1, 2, i)
 }
 
 fn bench_event_queue(c: &mut Criterion) {

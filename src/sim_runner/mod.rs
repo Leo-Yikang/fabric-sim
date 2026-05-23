@@ -93,6 +93,28 @@ pub struct SimRunner {
     pub sampler: TimeSeriesSampler,
     /// switch EntityId → switches 数组索引（索引 = switch_id）
     switch_index: Vec<usize>,
+    /// 全局包追踪 ID 计数器：单调递增，与 slab 索引解耦（P1 可观测性）
+    next_trace_id: u64,
+    /// 事件类型直方图（P1 可观测性）
+    event_histogram: crate::monitor::EventHistogram,
+    /// 最大 pending queue 长度（P1 可观测性）
+    max_pending: usize,
+    /// 当前连续同时间戳事件计数（P1 可观测性）
+    same_time_count: u64,
+    /// 上一个事件的时间戳（P1 可观测性）
+    last_event_time: u64,
+    /// 同时间戳连续处理的最大事件数（P1 可观测性）
+    max_same_time_burst: u64,
+    /// 每个 host 已调度但尚未处理的 Timeout 截止时间。
+    /// u64::MAX 表示没有待处理的 Timeout。
+    /// 用于在 ACK 提前到达时逻辑取消冗余 Timeout（P1 修复）。
+    pending_timeout_deadline: Vec<u64>,
+    /// P2：TrainingJob 产生的 flow 边界 [start_fid, end_fid)，每个元素对应一个 CollectiveOp
+    training_boundaries: Vec<(u32, u32)>,
+    /// P2：每个 iteration 包含多少个 collective
+    collectives_per_iteration: Vec<usize>,
+    /// P2：Training 级别指标（仅在注入 TrainingJob 时填充）
+    pub training_metrics: crate::training::TrainingMetrics,
 }
 
 impl SimRunner {
@@ -105,6 +127,7 @@ impl SimRunner {
         for &h in &topo.hosts {
             protocols.push(make_proto(h, &topo));
         }
+        let n_hosts = topo.hosts.len();
         let n_links = topo.links.len();
         let max_sw_id = topo.switches.iter().map(|sw| sw.id).max().unwrap_or(0);
         let mut switch_index = vec![usize::MAX; (max_sw_id + 1) as usize];
@@ -124,6 +147,16 @@ impl SimRunner {
             tx_tick_ns: 200,
             sampler: TimeSeriesSampler::disabled(),
             switch_index,
+            next_trace_id: 1,
+            event_histogram: crate::monitor::EventHistogram::default(),
+            max_pending: 0,
+            same_time_count: 0,
+            last_event_time: u64::MAX,
+            max_same_time_burst: 0,
+            pending_timeout_deadline: vec![u64::MAX; n_hosts],
+            training_boundaries: Vec::new(),
+            collectives_per_iteration: Vec::new(),
+            training_metrics: crate::training::TrainingMetrics::default(),
         })
     }
 
@@ -160,11 +193,66 @@ impl SimRunner {
         }
     }
 
+    /// P2：注入 TrainingJob，同时记录 collective 边界用于后续指标计算
+    pub fn inject_training_job(
+        &mut self,
+        job: &crate::training::TrainingJob,
+    ) {
+        let (flows, boundaries, collectives_per_iteration) = job.generate();
+        self.training_boundaries = boundaries;
+        self.collectives_per_iteration = collectives_per_iteration;
+        self.training_metrics.job_name.clone_from(&job.name);
+        self.training_metrics.total_iterations = job.iterations.len() as u32;
+        self.training_metrics.collective_labels = job
+            .iterations
+            .iter()
+            .flat_map(|iter| {
+                iter.collectives.iter().map(|c| {
+                    format!(
+                        "iter={} {}-{}",
+                        iter.iter_id,
+                        format!("{:?}", c.kind).to_lowercase(),
+                        format!("{:?}", c.algorithm).to_lowercase()
+                    )
+                })
+            })
+            .collect();
+        self.inject_flows(flows);
+    }
+
     /// 跑到所有事件处理完，或达到 max_time
     pub fn run(&mut self, max_time_ns: u64) {
         while let Some(ev) = self.sim_pop_until(max_time_ns) {
             self.dispatch(ev);
             self.sampler.maybe_sample(self.sim.now(), &self.link_bytes_sent, &self.topo);
+        }
+        self.sim_start_ns = 0;
+    }
+
+    /// 带进度报告的仿真运行（P1 可观测性）
+    ///
+    /// 每隔 `progress_interval_ns` 仿真时间打印一次进度，包含：
+    /// - 当前仿真时间
+    /// - 已处理事件数
+    /// - pending queue 长度
+    /// - 当前最大同时间戳 burst
+    pub fn run_with_progress(&mut self, max_time_ns: u64, progress_interval_ns: u64) {
+        let mut next_report_ns = progress_interval_ns;
+        while let Some(ev) = self.sim_pop_until(max_time_ns) {
+            self.dispatch(ev);
+            self.sampler.maybe_sample(self.sim.now(), &self.link_bytes_sent, &self.topo);
+            let now = self.sim.now();
+            if now >= next_report_ns {
+                let pending = self.sim.pending();
+                println!(
+                    "[progress] sim_time={:.3}ms  processed={}  pending={}  max_burst={}",
+                    now as f64 / 1e6,
+                    self.sim.processed(),
+                    pending,
+                    self.max_same_time_burst,
+                );
+                next_report_ns = now + progress_interval_ns;
+            }
         }
         self.sim_start_ns = 0;
     }
@@ -179,6 +267,26 @@ impl SimRunner {
     }
 
     fn dispatch(&mut self, ev: Event) {
+        // P1 可观测性：更新事件直方图
+        self.event_histogram.record(&ev.kind);
+
+        // P1 可观测性：更新 pending queue 最大长度
+        let pending = self.sim.pending();
+        if pending > self.max_pending {
+            self.max_pending = pending;
+        }
+
+        // P1 可观测性：检测同时间戳事件 burst
+        if ev.time == self.last_event_time {
+            self.same_time_count += 1;
+        } else {
+            self.same_time_count = 1;
+            self.last_event_time = ev.time;
+        }
+        if self.same_time_count > self.max_same_time_burst {
+            self.max_same_time_burst = self.same_time_count;
+        }
+
         match ev.kind {
             EventKind::FlowStart {
                 flow_id,
@@ -209,6 +317,15 @@ impl SimRunner {
                 self.handle_packet_arrive(packet_id, ev.target, ev.time);
             }
             EventKind::Timeout { .. } => {
+                // P1 修复：跳过已被逻辑取消的过时 Timeout
+                let host_idx = ev.target as usize;
+                if host_idx < self.pending_timeout_deadline.len()
+                    && ev.time != self.pending_timeout_deadline[host_idx]
+                {
+                    // 该 Timeout 已被 ACK 触发的 TxTick 覆盖，忽略
+                    return;
+                }
+                self.pending_timeout_deadline[host_idx] = u64::MAX;
                 // RTO 检查：触发一次 TxTick 让协议栈处理超时重传
                 self.sim.schedule(Event::new(
                     ev.time,
@@ -221,9 +338,13 @@ impl SimRunner {
         }
     }
 
-    /// 向 packet_buf 插入包，返回分配的 slab 索引（已写入 pkt.id）
+    /// 向 packet_buf 插入包，返回分配的 slab 索引（已写入 pkt.id）。
+    /// 同时分配全局唯一的 `trace_id`（P1 可观测性）。
     #[inline]
-    fn packet_buf_insert(&mut self, pkt: Packet) -> u64 {
+    fn packet_buf_insert(&mut self, mut pkt: Packet) -> u64 {
+        let trace_id = self.next_trace_id;
+        self.next_trace_id += 1;
+        pkt.trace_id = trace_id;
         self.packet_buf.insert(pkt)
     }
 
@@ -239,7 +360,7 @@ impl SimRunner {
             .fcts
             .iter()
             .copied()
-            .filter(|f| f.start_ns > 0)
+            .filter(|f| f.bytes > 0)
             .collect();
         let total_flows = fct_list.len() as u64;
         let mut summary = SimSummary::from_fcts(&self.protocol_name, &mut fct_list);
@@ -271,6 +392,67 @@ impl SimRunner {
                 summary.avg_link_util = (self.link_bytes_sent.iter().sum::<u64>() as f64) / total_capacity_bytes;
             }
         }
+        // P1 可观测性：填充运行剖面
+        summary.profile.event_histogram = self.event_histogram.clone();
+        summary.profile.max_pending_events = self.max_pending;
+        summary.profile.max_same_time_burst = self.max_same_time_burst;
+
+        // P2：计算 Training 指标（如果有 training_boundaries）
+        self.compute_training_metrics();
         summary
+    }
+
+    /// P2：根据 training_boundaries 和 fcts 计算 collective/iteration 完成时间
+    fn compute_training_metrics(&mut self) {
+        if self.training_boundaries.is_empty() {
+            return;
+        }
+
+        let mut collective_times = Vec::with_capacity(self.training_boundaries.len());
+        let mut iteration_times = Vec::new();
+
+        let mut boundary_idx = 0usize;
+        for &num_collectives in &self.collectives_per_iteration {
+            let mut iter_start: Option<u64> = None;
+            let mut iter_finish: u64 = 0;
+
+            for _ in 0..num_collectives {
+                if boundary_idx >= self.training_boundaries.len() {
+                    break;
+                }
+                let (start_fid, end_fid) = self.training_boundaries[boundary_idx];
+                boundary_idx += 1;
+
+                let mut collective_start = u64::MAX;
+                let mut collective_finish = 0u64;
+                let mut has_flow = false;
+
+                for fid in start_fid..end_fid {
+                    let idx = fid as usize;
+                    if idx < self.fcts.len() && self.fcts[idx].bytes > 0 {
+                        has_flow = true;
+                        collective_start = collective_start.min(self.fcts[idx].start_ns);
+                        collective_finish = collective_finish.max(self.fcts[idx].finish_ns);
+                    }
+                }
+
+                if has_flow {
+                    let completion = collective_finish.saturating_sub(collective_start);
+                    collective_times.push(completion);
+                    iter_start = Some(iter_start.unwrap_or(collective_start).min(collective_start));
+                    iter_finish = iter_finish.max(collective_finish);
+                } else {
+                    collective_times.push(0);
+                }
+            }
+
+            if let Some(start) = iter_start {
+                iteration_times.push(iter_finish.saturating_sub(start));
+            }
+        }
+
+        self.training_metrics.completed_iterations = iteration_times.len() as u32;
+        self.training_metrics.iteration_times_ns = iteration_times;
+        self.training_metrics.collective_completion_ns = collective_times;
     }
 }

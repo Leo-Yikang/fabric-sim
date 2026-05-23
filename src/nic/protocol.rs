@@ -53,4 +53,11 @@ pub trait Protocol {
     /// 返回最早的未确认包的 RTO 截止时间（send_time + rto_ns）。
     /// None 表示当前没有未确认的包，不需要 RTO 检查。
     fn next_rto_deadline(&self) -> Option<u64>;
+
+    /// P3：返回下一次允许发送的最早时间（ns）。
+    /// 用于 rate-based / pacing 协议避免固定 TxTick 空转。
+    /// None 表示没有 pacing 限制，使用默认 tx_tick_ns。
+    fn next_tx_time(&self) -> Option<u64> {
+        None
+    }
 }

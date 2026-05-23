@@ -92,15 +92,35 @@ impl SimRunner {
     }
 
     /// 根据协议栈当前状态，决定下一步调度 TxTick（带可选延迟）还是 RTO Timeout。
+    ///
+    /// 修复冗余 Timeout：当 ACK 提前到达并触发 TxTick 时，逻辑取消之前调度的 Timeout，
+    /// 避免事件队列中堆积大量过时的 Timeout 事件（P1 可观测性）。
+    ///
+    /// P3：支持 pacing-aware 调度。如果协议实现了 `next_tx_time()`，优先使用它
+    /// 而不是固定 tick_delay，避免 rate-based 协议的大量空转 TxTick。
     fn schedule_host_next_action(&mut self, host: EntityId, now: u64, tick_delay: u64) {
-        if let Some(proto) = self.protocols.get(host as usize) {
+        let host_idx = host as usize;
+        if let Some(proto) = self.protocols.get(host_idx) {
             if proto.has_pending_work() {
+                // 有工作要做：逻辑取消任何已调度的 Timeout
+                self.pending_timeout_deadline[host_idx] = u64::MAX;
+
+                // P3：pacing-aware 调度
+                let next_tick = proto.next_tx_time().unwrap_or(now + tick_delay);
+                let scheduled_time = next_tick.max(now);
                 self.sim.schedule(Event::new(
-                    now + tick_delay,
+                    scheduled_time,
                     EventKind::TxTick { host },
                     host,
                 ));
             } else if let Some(deadline) = proto.next_rto_deadline() {
+                // 无工作但有未确认包：需要 Timeout。
+                // 如果已经有一个更早或相同的 Timeout 在队列中，不再重复调度。
+                let existing = self.pending_timeout_deadline[host_idx];
+                if existing != u64::MAX && existing <= deadline {
+                    return;
+                }
+                self.pending_timeout_deadline[host_idx] = deadline;
                 self.sim.schedule(Event::new(
                     deadline,
                     EventKind::Timeout { timer_id: 0 },

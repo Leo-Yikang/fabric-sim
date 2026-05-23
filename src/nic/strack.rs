@@ -267,7 +267,7 @@ impl STrackProtocol {
                 };
                 let pid = self.next_packet_id;
                 self.next_packet_id += 1;
-                let mut pkt = Packet::data(pid, fid, seq, self.host_id, dst, now);
+                let mut pkt = Packet::data(pid, pid, fid, seq, self.host_id, dst, now);
                 pkt.routing_tag = path + 1;
                 to_send.push(pkt);
                 self.tx_stats.packets_retransmitted += 1;
@@ -282,7 +282,7 @@ impl STrackProtocol {
                 };
                 let pid = self.next_packet_id;
                 self.next_packet_id += 1;
-                let mut pkt = Packet::data(pid, fid, next_seq, self.host_id, dst, now);
+                let mut pkt = Packet::data(pid, pid, fid, next_seq, self.host_id, dst, now);
                 pkt.routing_tag = path.saturating_add(1);
                 to_send.push(pkt);
                 self.tx_stats.packets_sent += 1;
@@ -433,6 +433,7 @@ impl STrackProtocol {
         ack_payload.extend_from_slice(&flow.received_bits.to_le_bytes());
         let ack = Packet::control(
             pid_ack,
+            pid_ack,
             pkt.flow_id,
             flow.next_expected,
             self.host_id,
@@ -451,6 +452,7 @@ impl STrackProtocol {
             nack_payload.extend_from_slice(&flow.next_expected.to_le_bytes());
             nack_payload.extend_from_slice(&flow.received_bits.to_le_bytes());
             let nack = Packet::control(
+                pid_nack,
                 pid_nack,
                 pkt.flow_id,
                 seq,
@@ -563,7 +565,7 @@ mod tests {
     fn rx_in_order_delivery() {
         let mut proto = STrackProtocol::with_path_count(99, STrackMode::Ecmp, 1);
         for s in 0..10u32 {
-            let pkt = Packet::data(s as u64, 0, s, 1, 99, 0);
+            let pkt = Packet::data(s as u64, 0, 0, s, 1, 99, 0);
             let outs = proto.on_data(&pkt, 0);
             assert_eq!(outs.len(), 1); // 只回 ACK
             assert_eq!(outs[0].seq, s + 1); // 累计 ACK
@@ -575,7 +577,7 @@ mod tests {
     fn rx_out_of_order_then_fill_gap() {
         let mut proto = STrackProtocol::with_path_count(99, STrackMode::Ecmp, 1);
         for s in [0u32, 2, 3, 1] {
-            let pkt = Packet::data(s as u64, 0, s, 1, 99, 0);
+            let pkt = Packet::data(s as u64, 0, 0, s, 1, 99, 0);
             proto.on_data(&pkt, 0);
         }
         assert_eq!(proto.rx_flows[&0].next_expected, 4);
@@ -586,7 +588,7 @@ mod tests {
     fn rx_handles_duplicate() {
         let mut proto = STrackProtocol::with_path_count(99, STrackMode::Ecmp, 1);
         for _ in 0..3 {
-            let pkt = Packet::data(0, 0, 0, 1, 99, 0);
+            let pkt = Packet::data(0, 0, 0, 0, 1, 99, 0);
             proto.on_data(&pkt, 0);
         }
         assert_eq!(proto.rx_flows[&0].next_expected, 1);
@@ -609,7 +611,7 @@ mod tests {
         proto.start_flow(0, 2, 1024 * 100, 0);
         let _ = proto.on_tx_tick(0);
         // ACK 前 cwnd 个包
-        let ack = Packet::control(1000, 0, 16, 2, 1, false, 0, Vec::new(), 1000);
+        let ack = Packet::control(1000, 0, 0, 16, 2, 1, false, 0, Vec::new(), 1000);
         proto.on_tx_control(&ack, 1000);
         let flow = &proto.tx_flows[&0];
         assert_eq!(flow.un_acked_base, 16);
@@ -621,7 +623,7 @@ mod tests {
         let mut proto = STrackProtocol::with_path_count(1, STrackMode::Ecmp, 1);
         proto.start_flow(0, 2, 1024 * 100, 0);
         let _ = proto.on_tx_tick(0);
-        let ack = Packet::control(1000, 0, 16, 2, 1, true, 0, Vec::new(), 1000);
+        let ack = Packet::control(1000, 0, 0, 16, 2, 1, true, 0, Vec::new(), 1000);
         proto.on_tx_control(&ack, 1000);
         let flow = &proto.tx_flows[&0];
         assert_eq!(flow.cwnd, proto.init_cwnd / 2);
@@ -636,7 +638,7 @@ mod tests {
         let mut payload = Vec::with_capacity(12);
         payload.extend_from_slice(&0u32.to_le_bytes());
         payload.extend_from_slice(&0u64.to_le_bytes()); // bits=0 => 所有包都缺失
-        let nack = Packet::control(1000, 0, 1, 2, 1, false, 1, payload, 1000);
+        let nack = Packet::control(1000, 0, 0, 1, 2, 1, false, 1, payload, 1000);
         proto.on_tx_control(&nack, 1000);
         let flow = &proto.tx_flows[&0];
         assert!(flow.retransmit_queue.contains(&0));

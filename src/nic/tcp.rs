@@ -182,7 +182,7 @@ impl SimpleTcp {
                 let seq = retx.remove(0);
                 let pid = self.next_packet_id;
                 self.next_packet_id += 1;
-                let pkt = Packet::data(pid, fid, seq, self.host_id, dst, now);
+                let pkt = Packet::data(pid, pid, fid, seq, self.host_id, dst, now);
                 to_send.push(pkt);
                 self.stats.packets_retransmitted += 1;
                 self.stats.packets_sent += 1;
@@ -194,7 +194,7 @@ impl SimpleTcp {
             while new_inflight < cwnd && next_seq < total {
                 let pid = self.next_packet_id;
                 self.next_packet_id += 1;
-                let pkt = Packet::data(pid, fid, next_seq, self.host_id, dst, now);
+                let pkt = Packet::data(pid, pid, fid, next_seq, self.host_id, dst, now);
                 to_send.push(pkt);
                 self.stats.packets_sent += 1;
                 new_inflight += 1;
@@ -307,6 +307,7 @@ impl SimpleTcp {
         self.next_packet_id += 1;
         let ack = Packet::control(
             pid_ack,
+            pid_ack,
             pkt.flow_id,
             flow.next_expected,
             self.host_id,
@@ -403,7 +404,7 @@ mod tests {
     fn tcp_rx_in_order_delivery() {
         let mut tcp = SimpleTcp::new(99);
         for s in 0..10u32 {
-            let pkt = Packet::data(s as u64, 0, s, 1, 99, 0);
+            let pkt = Packet::data(s as u64, 0, 0, s, 1, 99, 0);
             let outs = tcp.on_rx_data(&pkt, 0);
             assert_eq!(outs.len(), 1);
             assert_eq!(outs[0].seq, s + 1);
@@ -414,9 +415,9 @@ mod tests {
     #[test]
     fn tcp_rx_out_of_order_then_fill_gap() {
         let mut tcp = SimpleTcp::new(99);
-        let pkt0 = Packet::data(0, 0, 0, 1, 99, 0);
-        let pkt2 = Packet::data(1, 0, 2, 1, 99, 0);
-        let pkt1 = Packet::data(2, 0, 1, 1, 99, 0);
+        let pkt0 = Packet::data(0, 0, 0, 0, 1, 99, 0);
+        let pkt2 = Packet::data(1, 0, 0, 2, 1, 99, 0);
+        let pkt1 = Packet::data(2, 0, 0, 1, 1, 99, 0);
 
         let out0 = tcp.on_rx_data(&pkt0, 0);
         assert_eq!(out0[0].seq, 1);
@@ -443,7 +444,7 @@ mod tests {
         let mut tcp = SimpleTcp::new(1);
         tcp.start_flow(0, 2, 1024 * 100, 0);
         let _ = tcp.on_tx_tick(0);
-        let ack = Packet::control(1000, 0, 16, 2, 1, false, 0, Vec::new(), 1000);
+        let ack = Packet::control(1000, 0, 0, 16, 2, 1, false, 0, Vec::new(), 1000);
         tcp.on_tx_control(&ack, 1000);
         let flow = &tcp.tx_flows[&0];
         assert_eq!(flow.un_acked_base, 16);
@@ -455,7 +456,7 @@ mod tests {
         let mut tcp = SimpleTcp::new(1);
         tcp.start_flow(0, 2, 1024 * 100, 0);
         let _ = tcp.on_tx_tick(0);
-        let ack = Packet::control(1000, 0, 16, 2, 1, true, 0, Vec::new(), 1000);
+        let ack = Packet::control(1000, 0, 0, 16, 2, 1, true, 0, Vec::new(), 1000);
         tcp.on_tx_control(&ack, 1000);
         let flow = &tcp.tx_flows[&0];
         assert!(flow.cwnd <= tcp.init_cwnd); // ECN 后 cwnd 应该下降
@@ -501,7 +502,7 @@ mod tests {
 
         // 模拟收到 3 个重复 ACK（都确认到 seq=0，即第一个包没收到）
         for i in 0..3 {
-            let ack = Packet::control(1000 + i as u64, 0, 0, 2, 1, false, 0, Vec::new(), 1000);
+            let ack = Packet::control(1000 + i as u64, 0, 0, 0, 2, 1, false, 0, Vec::new(), 1000);
             tcp.on_tx_control(&ack, 1000);
         }
 
@@ -530,6 +531,7 @@ mod tests {
             let ack = Packet::control(
                 1000 + ack_seq as u64,
                 0,
+                0,
                 ack_seq,
                 2,
                 1,
@@ -548,6 +550,7 @@ mod tests {
         while tcp.tx_flows[&0].cwnd < tcp.tx_flows[&0].ssthresh {
             let ack = Packet::control(
                 2000 + ack_seq as u64,
+                0,
                 0,
                 ack_seq,
                 2,
@@ -570,6 +573,7 @@ mod tests {
         for _ in 0..cwnd_ca {
             let ack = Packet::control(
                 3000 + ack_seq as u64,
+                0,
                 0,
                 ack_seq,
                 2,

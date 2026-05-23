@@ -41,12 +41,16 @@ pub struct Packet {
     pub payload: Vec<u8>,
     /// 用于 FCT 统计：包出发时刻（ns）
     pub depart_time: u64,
+    /// 全局唯一、单调递增的追踪 ID，不随 slab 复用而重置。
+    /// 用于逐包调试和路径追踪，与 `id`（slab 索引）不同。
+    pub trace_id: PacketId,
 }
 
 impl Packet {
-    pub fn data(id: PacketId, flow: FlowId, seq: SeqNum, src: EntityId, dst: EntityId, depart_time: u64) -> Self {
+    pub fn data(id: PacketId, trace_id: PacketId, flow: FlowId, seq: SeqNum, src: EntityId, dst: EntityId, depart_time: u64) -> Self {
         Self {
             id,
+            trace_id,
             kind: PacketKind::Data,
             flow_id: flow,
             seq,
@@ -62,6 +66,7 @@ impl Packet {
 
     pub fn control(
         id: PacketId,
+        trace_id: PacketId,
         flow: FlowId,
         seq: SeqNum,
         src: EntityId,
@@ -73,6 +78,7 @@ impl Packet {
     ) -> Self {
         Self {
             id,
+            trace_id,
             kind: PacketKind::Control(control_type),
             flow_id: flow,
             seq,

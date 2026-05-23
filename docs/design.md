@@ -717,24 +717,24 @@ packet-level DES 的最大问题是事件数量。
 
 ### P1：协议与模拟器可观测性
 
-- [ ] 增加 event type histogram。
-- [ ] 增加 `run_with_progress()` 或 profiling mode。
-- [ ] 输出每类事件数量、最大 pending queue 长度、同时间戳连续事件数量。
-- [ ] packet trace 使用独立 `trace_id`，不要依赖 slab `packet.id`。
+- [x] 增加 event type histogram。
+- [x] 增加 `run_with_progress()` 或 profiling mode。
+- [x] 输出每类事件数量、最大 pending queue 长度、同时间戳连续事件数量。
+- [x] packet trace 使用独立 `trace_id`，不要依赖 slab `packet.id`。
 
 ### P2：训练 workload 抽象
 
-- [ ] 增加 `TrainingJob` / `CollectiveOp`。
-- [ ] 支持 reduce-scatter + all-gather。
-- [ ] 支持 chunk/channel/pipeline。
-- [ ] 输出 iteration time / collective completion time。
+- [x] 增加 `TrainingJob` / `CollectiveOp`。
+- [x] 支持 reduce-scatter + all-gather。
+- [x] 支持 chunk/channel/pipeline。
+- [x] 输出 iteration time / collective completion time。
 
 ### P3：更真实的协议 baseline
 
-- [ ] 完整 DCQCN baseline。
-- [ ] HPCC/Swift 类协议占位或简化实现。
-- [ ] PFC/CNP/priority queue。
-- [ ] 多 QP / 多 NIC。
+- [x] 完整 DCQCN baseline。
+- [x] HPCC/Swift 类协议占位或简化实现。
+- [x] PFC/CNP/priority queue。
+- [x] 多 QP / 多 NIC。
 
 ### P4：规模化性能
 
