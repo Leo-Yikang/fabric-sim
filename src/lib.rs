@@ -28,6 +28,7 @@ pub mod topology;
 pub mod traffic;
 pub mod monitor;
 pub mod sim_runner;
+pub mod viz;
 
 pub use sim_runner::SimRunner;
 

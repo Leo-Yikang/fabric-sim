@@ -156,7 +156,7 @@ impl SimpleTcp {
             {
                 let f = self.tx_flows.get(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
                 for (seq, send_t) in &f.send_times {
-                    if now.saturating_sub(*send_t) > self.rto_ns && !retx.contains(seq) {
+                    if now.saturating_sub(*send_t) >= self.rto_ns && !retx.contains(seq) {
                         timeout_seqs.push(*seq);
                     }
                 }
@@ -356,6 +356,38 @@ impl Protocol for SimpleTcp {
     fn stats(&self) -> ProtocolStats {
         self.stats
     }
+
+    fn has_pending_work(&self) -> bool {
+        for f in self.tx_flows.values() {
+            if f.done {
+                continue;
+            }
+            if !f.retransmit_queue.is_empty() {
+                return true;
+            }
+            if f.in_flight < f.cwnd && f.next_seq < f.total_packets {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn next_rto_deadline(&self) -> Option<u64> {
+        let mut min_deadline: Option<u64> = None;
+        for f in self.tx_flows.values() {
+            if f.done {
+                continue;
+            }
+            for &send_t in f.send_times.values() {
+                let deadline = send_t.saturating_add(self.rto_ns);
+                min_deadline = Some(match min_deadline {
+                    Some(current) => current.min(deadline),
+                    None => deadline,
+                });
+            }
+        }
+        min_deadline
+    }
 }
 
 // ------------------------------------------------------------------
@@ -444,6 +476,18 @@ mod tests {
         assert_eq!(flow.cwnd, tcp.init_cwnd, "RTO 后 cwnd 应重置为 init_cwnd");
         assert_eq!(flow.ssthresh, old_cwnd / 2, "RTO 后 ssthresh 应降为 cwnd/2");
         assert_ne!(flow.ssthresh, old_ssthresh);
+    }
+
+    #[test]
+    fn tcp_timeout_retransmit_at_exact_deadline() {
+        let mut tcp = SimpleTcp::new(1);
+        tcp.start_flow(0, 2, 1024 * 10, 0);
+        let _ = tcp.on_tx_tick(0);
+
+        let pkts = tcp.on_tx_tick(tcp.rto_ns);
+
+        assert!(!pkts.is_empty(), "RTO 截止时刻应立即触发重传");
+        assert!(tcp.stats.packets_retransmitted > 0);
     }
 
     #[test]

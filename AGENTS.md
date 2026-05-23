@@ -44,7 +44,7 @@
 # 编译（release 模式有显著性能提升，DES 引擎吞吐从 ~2M 提升到 ~20M events/sec）
 cargo build --release
 
-# 运行全部测试（共 26 个：21 单元 + 4 集成 + 1 文档）
+# 运行全部测试（共 59 个：45 单元 + 13 集成 + 1 文档）
 cargo test --release
 
 # 运行端到端演示（核心成果：ECMP vs STrack 对比）
@@ -55,6 +55,10 @@ cargo run --release --example des_demo
 
 # 性能基准测试
 cargo bench
+
+# 3D 拓扑可视化（需 Python + plotly）
+cargo run --release --example viz_demo
+python3 scripts/visualize_3d.py output/viz_data.json
 
 # 日志级别控制（通过 RUST_LOG）
 RUST_LOG=info  cargo run --release --example des_demo
@@ -98,8 +102,13 @@ src/
 │   ├── synthetic.rs    # 通用合成流量（流大小分布 × 到达过程 × 通信对模式）
 │   ├── permute.rs      # 排列流量（Random / Shift / BitReversal）
 │   └── mix.rs          # 混合流量（多组件按比例组合）
-└── monitor/            # 阶段四：指标采集
-    └── mod.rs          # FlowFct + SimSummary（serde Serialize，支持 pretty_print）
+├── monitor/            # 阶段四：指标采集
+│   └── mod.rs          # FlowFct + SimSummary（serde Serialize，支持 pretty_print）
+└── viz/                # 3D 可视化数据采集
+    ├── mod.rs          # TopoKind 枚举 + build_viz_data()
+    ├── data.rs         # VizData / VizNode / VizLink / VizFrame（serde 序列化）
+    ├── position.rs     # 3D 坐标计算（Dumbell / LeafSpine）
+    └── sampler.rs      # TimeSeriesSampler 链路利用率定时采样
 ```
 
 ---
@@ -274,6 +283,17 @@ A: 项目使用**分层判错**策略（详见 `src/error.rs` 模块文档）：
 - 测试中的 `unwrap()` / `expect()` **完全允许**，不做修改。
 
 **新增代码时应遵循以上四层约定，禁止新增裸 `unwrap()`。**
+
+### Q: 如何导出链路利用率时间序列用于 3D 可视化？
+A:
+1. 创建 `SimRunner` 时调用 `.with_sampling(interval_ns)` 启用定时采样。
+2. 仿真结束后，用 `viz::build_viz_data(&runner.topo, summary, runner.sampler.frames, &kind)` 构造 `VizData`。
+3. 序列化为 JSON：`serde_json::to_string_pretty(&viz_data)`。
+4. 使用 `scripts/visualize_3d.py` 渲染交互式 3D 拓扑图。
+
+拓扑类型由 `TopoKind` 枚举指定（`Dumbell` / `LeafSpine`），影响 3D 坐标计算。参考 `examples/viz_demo.rs` 获取完整用法。
+- 采样数据结构：`VizFrame { time_ns, links: Vec<LinkSnapshot { utilization: f64, queue_depth_bytes: u32 }> }`。
+- 采样基于 `link_bytes_sent: Vec<u64>`（每条链路独立统计累积字节），利用率 = `delta / (bw * interval)`。
 
 ---
 

@@ -45,4 +45,12 @@ pub trait Protocol {
 
     /// 获取当前统计信息
     fn stats(&self) -> ProtocolStats;
+
+    /// 当前是否有待发送的工作（cwnd 有空间可发新数据，或重传队列非空）。
+    /// 返回 false 表示协议栈暂时不需要 TxTick，可完全由外部事件（ACK/NACK/FlowStart）驱动。
+    fn has_pending_work(&self) -> bool;
+
+    /// 返回最早的未确认包的 RTO 截止时间（send_time + rto_ns）。
+    /// None 表示当前没有未确认的包，不需要 RTO 检查。
+    fn next_rto_deadline(&self) -> Option<u64>;
 }

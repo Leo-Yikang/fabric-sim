@@ -44,8 +44,13 @@ fn run_one(mode: STrackMode, label: &str) {
     runner.run(50_000_000); // 50 ms 仿真上限
     let dt = t0.elapsed();
 
+    let processed = runner.sim.processed();
     let summary = runner.summarize();
     println!("墙钟仿真耗时：{:?}", dt);
+    println!("处理事件总数：{}，有效吞吐：{:.2} M events/sec",
+        processed,
+        processed as f64 / dt.as_secs_f64() / 1_000_000.0
+    );
     summary.pretty_print();
 }
 

@@ -1,41 +1,51 @@
-//! 事件队列：基于二叉堆的最小优先队列封装
+//! 事件队列：基于 4-ary heap（四叉堆）的最小优先队列
 //!
-//! 直接使用标准库 `BinaryHeap` + 反向比较，实现最小堆语义。
+//! 4-ary heap 的树高约为同规模 BinaryHeap 的一半（log₄ N vs log₂ N），
+//! push/pop 时的 sift 操作内存访问次数更少，在百万级事件队列下吞吐更高。
 //! `Event` 自身已通过 `seq` 字段保证 FIFO 稳定性。
 
 use super::event::Event;
-use std::collections::BinaryHeap;
 
-/// 事件队列
+/// 事件队列（4-ary min-heap）
 pub struct EventQueue {
-    heap: BinaryHeap<Event>,
+    heap: Vec<Event>,
 }
 
 impl EventQueue {
     pub fn new() -> Self {
-        Self { heap: BinaryHeap::new() }
+        Self { heap: Vec::new() }
     }
 
     pub fn with_capacity(cap: usize) -> Self {
-        Self { heap: BinaryHeap::with_capacity(cap) }
+        Self { heap: Vec::with_capacity(cap) }
     }
 
     /// 插入事件
     #[inline]
     pub fn push(&mut self, ev: Event) {
         self.heap.push(ev);
+        self.sift_up(self.heap.len() - 1);
     }
 
     /// 弹出最早的事件
     #[inline]
     pub fn pop(&mut self) -> Option<Event> {
-        self.heap.pop()
+        if self.heap.is_empty() {
+            return None;
+        }
+        let last = self.heap.len() - 1;
+        self.heap.swap(0, last);
+        let ev = self.heap.pop();
+        if !self.heap.is_empty() {
+            self.sift_down(0);
+        }
+        ev
     }
 
     /// 查看最早的事件但不弹出
     #[inline]
     pub fn peek(&self) -> Option<&Event> {
-        self.heap.peek()
+        self.heap.first()
     }
 
     pub fn len(&self) -> usize {
@@ -44,6 +54,50 @@ impl EventQueue {
 
     pub fn is_empty(&self) -> bool {
         self.heap.is_empty()
+    }
+
+    /// Event 的 Ord 是为 BinaryHeap（最大堆）反向实现的；
+    /// 4-ary heap 自己维护最小堆语义，需要直接比较 time + seq。
+    #[inline]
+    fn ev_less(a: &Event, b: &Event) -> bool {
+        a.time < b.time || (a.time == b.time && a.seq < b.seq)
+    }
+
+    /// 将新加入的末尾元素上浮到正确位置
+    #[inline]
+    fn sift_up(&mut self, mut idx: usize) {
+        while idx > 0 {
+            let parent = (idx - 1) / 4;
+            if !Self::ev_less(&self.heap[idx], &self.heap[parent]) {
+                break;
+            }
+            self.heap.swap(idx, parent);
+            idx = parent;
+        }
+    }
+
+    /// 将根元素下沉到正确位置
+    #[inline]
+    fn sift_down(&mut self, mut idx: usize) {
+        let len = self.heap.len();
+        loop {
+            let first_child = idx * 4 + 1;
+            if first_child >= len {
+                break;
+            }
+            let last_child = (first_child + 3).min(len - 1);
+            let mut min = idx;
+            for child in first_child..=last_child {
+                if Self::ev_less(&self.heap[child], &self.heap[min]) {
+                    min = child;
+                }
+            }
+            if min == idx {
+                break;
+            }
+            self.heap.swap(idx, min);
+            idx = min;
+        }
     }
 }
 
@@ -69,5 +123,23 @@ mod tests {
             assert!(ev.time >= last);
             last = ev.time;
         }
+    }
+
+    #[test]
+    fn fifo_stability_same_time() {
+        let mut q = EventQueue::new();
+        let e1 = Event::new(100, EventKind::Custom("first".into()), 0);
+        let e2 = Event::new(100, EventKind::Custom("second".into()), 0);
+        let e3 = Event::new(100, EventKind::Custom("third".into()), 0);
+        q.push(e2.clone());
+        q.push(e3.clone());
+        q.push(e1.clone());
+
+        let a = q.pop().unwrap();
+        let b = q.pop().unwrap();
+        let c = q.pop().unwrap();
+        assert_eq!(a.seq, e1.seq);
+        assert_eq!(b.seq, e2.seq);
+        assert_eq!(c.seq, e3.seq);
     }
 }

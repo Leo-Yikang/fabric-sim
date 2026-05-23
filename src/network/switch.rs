@@ -68,18 +68,20 @@ impl Switch {
     /// 入包处理：选择出端口、判 ECN、判丢包、入队
     /// 返回：(选择的出端口, 是否被丢弃)
     pub fn ingress(&mut self, mut pkt: Packet, hash_key: u32) -> (Option<PortId>, bool) {
-        let ports: Vec<PortId> = match self.routing.ports_for(pkt.dst) {
-            Some(p) if !p.is_empty() => p.to_vec(),
-            _ => {
-                self.drops += 1;
-                return (None, true);
-            }
-        };
-
-        let chosen = if pkt.routing_tag > 0 && ((pkt.routing_tag as usize) - 1) < ports.len() {
-            ports[(pkt.routing_tag as usize) - 1]
-        } else {
-            ports[(hash_key as usize) % ports.len()]
+        let chosen = {
+            let ports = match self.routing.ports_for(pkt.dst) {
+                Some(p) if !p.is_empty() => p,
+                _ => {
+                    self.drops += 1;
+                    return (None, true);
+                }
+            };
+            let idx = if pkt.routing_tag > 0 && ((pkt.routing_tag as usize) - 1) < ports.len() {
+                (pkt.routing_tag as usize) - 1
+            } else {
+                (hash_key as usize) % ports.len()
+            };
+            ports[idx]
         };
 
         let pkt_size = pkt.size;

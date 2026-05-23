@@ -247,7 +247,7 @@ impl STrackProtocol {
             {
                 let f = self.tx_flows.get(&fid).expect("invariant: 刚迭代的活跃流必存在于 tx_flows");
                 for (seq, send_t) in &f.send_times {
-                    if now.saturating_sub(*send_t) > self.rto_ns && !retx.contains(seq) {
+                    if now.saturating_sub(*send_t) >= self.rto_ns && !retx.contains(seq) {
                         timeout_seqs.push(*seq);
                     }
                 }
@@ -514,6 +514,38 @@ impl Protocol for STrackProtocol {
             flows_completed: self.tx_stats.flows_completed,
         }
     }
+
+    fn has_pending_work(&self) -> bool {
+        for f in self.tx_flows.values() {
+            if f.done {
+                continue;
+            }
+            if !f.retransmit_queue.is_empty() {
+                return true;
+            }
+            if f.in_flight < f.cwnd && f.next_seq < f.total_packets {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn next_rto_deadline(&self) -> Option<u64> {
+        let mut min_deadline: Option<u64> = None;
+        for f in self.tx_flows.values() {
+            if f.done {
+                continue;
+            }
+            for &send_t in f.send_times.values() {
+                let deadline = send_t.saturating_add(self.rto_ns);
+                min_deadline = Some(match min_deadline {
+                    Some(current) => current.min(deadline),
+                    None => deadline,
+                });
+            }
+        }
+        min_deadline
+    }
 }
 
 // ------------------------------------------------------------------
@@ -608,5 +640,17 @@ mod tests {
         proto.on_tx_control(&nack, 1000);
         let flow = &proto.tx_flows[&0];
         assert!(flow.retransmit_queue.contains(&0));
+    }
+
+    #[test]
+    fn tx_rto_triggers_at_exact_deadline() {
+        let mut proto = STrackProtocol::with_path_count(1, STrackMode::Ecmp, 1);
+        proto.start_flow(0, 2, 1024 * 10, 0);
+        let _ = proto.on_tx_tick(0);
+
+        let pkts = proto.on_tx_tick(proto.rto_ns);
+
+        assert!(!pkts.is_empty(), "RTO 截止时刻应立即触发重传");
+        assert!(proto.tx_stats.packets_retransmitted > 0);
     }
 }

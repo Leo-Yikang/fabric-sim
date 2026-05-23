@@ -31,6 +31,10 @@ criterion = "0.5"
 name = "des_bench"
 harness = false
 
+[[bench]]
+name = "optimization_compare"
+harness = false
+
 [[example]]
 name = "des_demo"
 path = "examples/des_demo.rs"
@@ -46,6 +50,10 @@ path = "examples/workload_sweep.rs"
 [[example]]
 name = "multi_loss"
 path = "examples/tcp_limits/multi_loss.rs"
+
+[[example]]
+name = "viz_demo"
+path = "examples/viz_demo.rs"
 
 [profile.release]
 lto = true

@@ -1,53 +1,91 @@
 # STrack-Sim 设计文档
 
-> 版本：v1.0（**四阶段全部实现 ✅**）
-> 维护：kiwios-cn · 2026-05-14
+> 版本：v1.1  
+> 维护：kiwios-cn · 2026-05-23  
+> 定位：面向 AI/ML 集群传输协议研究的通用 packet-level 离散事件网络模拟器
 
 ---
 
-## 1. 总体架构
+## 1. 项目定位
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  Traffic Generator (阶段四 ✅)              │
-│        AllReduce │ AllToAll │ Incast                        │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ FlowDesc
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│              SimRunner (端到端仿真主循环)                    │
-│   FlowStart → TxTick → Packet 流转 → ACK/NACK → CC → ...    │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-            ┌──────────────┼──────────────┐
-            ▼              ▼              ▼
-   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-   │ NIC + STrack │ │  Topology    │ │  Monitor     │
-   │ (阶段三 ✅)  │ │  (阶段二 ✅) │ │ (阶段四 ✅)  │
-   └──────────────┘ └──────────────┘ └──────────────┘
-            │              │              │
-            └──────────────┼──────────────┘
-                           ▼
-                ┌────────────────────────┐
-                │ DES Engine (阶段一 ✅) │
-                │ Simulator + EventQueue │
-                └────────────────────────┘
-```
+项目名称仍为 **STrack-Sim**，但当前代码已经不再是“只模拟 STrack”的专用原型，而是一个可插拔协议栈的离散事件网络模拟器。
+
+当前已支持：
+
+- DES 事件引擎：稳定 FIFO 事件排序、纳秒级整数时间。
+- 网络物理层：单向链路、serialization delay、传播延迟、交换机 FIFO 队列、ECN、丢包。
+- 拓扑生成：Leaf-Spine、Fat-Tree、Dumbbell。
+- 可插拔协议：`Protocol` trait，内置 `STrackProtocol` 和 `SimpleTcp`。
+- 流量生成：Incast、AllToAll、Ring AllReduce、Permutation、Synthetic、Mix。
+- 指标采集：FCT、ECN、drop、重传、最大队列、平均链路利用率。
+- 可视化：链路利用率时间序列采样和 3D 拓扑数据导出。
+
+因此更准确的工程目标是：
+
+> 提供一个足够透明、可复现、易扩展的 packet-level DES 网络模拟器，用于比较多种传输协议在 AI/ML 集群通信模式下的行为。
+
+它目前仍是研究型模拟器，不是生产级网络仿真平台。和真实大规模模型训练网络相比，最主要的差距在于：训练语义、硬件细节、网络模型精度、规模化性能和校准方法仍然简化。
 
 ---
 
-## 2. 阶段一：离散事件引擎
+## 2. 当前总体架构
 
-### 2.1 数据结构
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    Traffic Generator                         │
+│  Incast / AllToAll / RingAllReduce / Synthetic / Mix         │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ Vec<FlowDesc>
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                         SimRunner                            │
+│  FlowStart / TxTick / Timeout / PacketArrive / PacketDepart  │
+│  PacketSlab / link_busy_until / sampler / monitor state      │
+└──────────────┬──────────────────────┬───────────────────────┘
+               │                      │
+               ▼                      ▼
+┌─────────────────────────┐   ┌───────────────────────────────┐
+│     Protocol trait       │   │      Topology + Network        │
+│  STrackProtocol/TCP/...  │   │  Link / Switch / RoutingTable  │
+└─────────────────────────┘   └───────────────────────────────┘
+               │                      │
+               └──────────┬───────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                         DES Core                             │
+│           Event / EventKind / EventQueue / Simulator         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+设计原则：
+
+- `core/` 不依赖网络概念，保持可复用。
+- `network/` 只关心包、链路、交换机和路由，不关心协议语义。
+- `nic/` 通过 `Protocol` trait 插入具体传输协议。
+- `sim_runner/` 是集中式事件分发器，负责跨模块状态协调。
+- `traffic/` 只生成 `FlowDesc`，不直接操纵模拟器内部状态。
+- `monitor/` 和 `viz/` 从仿真状态读取指标，避免影响协议逻辑。
+
+---
+
+## 3. DES 引擎
+
+### 3.1 Event
 
 ```rust
 pub struct Event {
-    pub time: SimTime,        // 触发时刻（ns）
-    pub kind: EventKind,      // 事件类型
-    pub target: EntityId,     // 目标实体
-    pub seq: u64,             // 全局序号（FIFO 稳定性）
+    pub time: SimTime,
+    pub kind: EventKind,
+    pub target: EntityId,
+    pub seq: u64,
 }
+```
 
+`seq` 由全局 `AtomicU64` 分配，用于同一时间戳事件的 FIFO 稳定性。时间单位统一为纳秒 `u64`。
+
+### 3.2 EventKind
+
+```rust
 pub enum EventKind {
     PacketArrive { packet_id: u64, src: EntityId },
     PacketDepart { packet_id: u64, dst: EntityId, port: u8 },
@@ -55,313 +93,700 @@ pub enum EventKind {
     Stop,
     FlowStart { flow_id: u32, src: EntityId, dst: EntityId, bytes: u64 },
     TxTick { host: EntityId },
-    Custom(String),  // 仅用于测试/示例
+    Custom(String),
 }
 ```
 
-### 2.2 关键技巧
+`FlowStart` 和 `TxTick` 已经是结构化事件，不再依赖 `Custom(String)` 编码。`Custom` 仅用于 DES 单元测试、示例和 benchmark。
 
-**BinaryHeap 反向 Ord** 实现最小堆：
+### 3.3 EventQueue
 
-```rust
-impl Ord for Event {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.time.cmp(&self.time).then_with(|| other.seq.cmp(&self.seq))
-    }
-}
-```
+当前实现是自定义 **4-ary min-heap**：
 
-### 2.3 性能基线（Apple Silicon）
+- 文件：`src/core/queue.rs`
+- 内部存储：`Vec<Event>`
+- 比较逻辑：直接比较 `(time, seq)`，不依赖 `Event::Ord`
+- 目标：降低大队列下 heap 高度和 sift 跳转次数
 
-| 场景 | 吞吐 |
-|------|------|
-| 链式 10 万事件 | ~23 M ev/s |
-| 100 万乱序事件 | ~13 M ev/s |
+注意：性能不是单调优于标准库 `BinaryHeap`。当前 `optimization_compare` benchmark 显示：
+
+| 规模 | BinaryHeap | 4-ary heap | 结论 |
+|---:|---:|---:|---|
+| 100k events | 13.31M elem/s | 11.04M elem/s | 4-ary 较慢 |
+| 1M events | 5.14M elem/s | 6.05M elem/s | 4-ary 较快 |
+
+后续如果继续优化事件队列，必须同时保留小队列和大队列两档 benchmark。
 
 ---
 
-## 3. 阶段二：网络拓扑与物理层
+## 4. 网络模型
 
-### 3.1 Packet
+### 4.1 Packet
+
+当前 `Packet` 是协议无关的最小公共结构：
 
 ```rust
+pub enum PacketKind {
+    Data,
+    Control(u8),
+}
+
 pub struct Packet {
-    pub id: PacketId,       // 全局唯一（SimRunner 分配）
-    pub kind: PacketKind,    // Data | Ack | Nack
+    pub id: PacketId,
+    pub kind: PacketKind,
     pub flow_id: FlowId,
     pub seq: SeqNum,
     pub size: u32,
     pub src: EntityId,
     pub dst: EntityId,
     pub ecn: bool,
-    pub path_hint: u8,       // STrack: 期望走的端口（1-indexed；0 表示不指定）
-    pub sack_base: SeqNum,
-    pub sack_bits: u64,
+    pub routing_tag: u8,
+    pub payload: Vec<u8>,
     pub depart_time: u64,
 }
 ```
 
-### 3.2 Link
+协议特定信息不再直接放在 `Packet` 字段中，而是通过：
+
+- `kind: Control(u8)` 区分 ACK/NACK/自定义控制包。
+- `payload: Vec<u8>` 承载 SACK bitmap、base seq 等协议自定义内容。
+- `routing_tag` 表示协议建议的路径/端口，`0` 表示交给交换机 ECMP 哈希。
+
+这比早期 `path_hint/sack_base/sack_bits` 直接挂在 Packet 上更适合多协议扩展。
+
+### 4.2 Link
+
+链路是单向的。双向物理链路通过两条反向 `Link` 表示。
+
+序列化延迟使用整数运算：
 
 ```rust
-pub fn serialization_ns(&self, size_bytes: u32) -> u64 {
-    (size_bytes as u64 * 8 * 1_000_000_000) / self.bandwidth_bps
-}
-pub fn arrive_time(&self, now_ns: u64, size_bytes: u32) -> u64 {
-    now_ns + self.serialization_ns(size_bytes) + self.prop_delay_ns
-}
+(size_bytes as u64 * 8 * 1_000_000_000) / bandwidth_bps
 ```
 
-### 3.3 Switch
+这避免浮点误差，但会向下取整。对于极高速、小包场景，后续如果要提高精度，可以考虑 fixed-point remainder 累积。
 
-```rust
-pub fn ingress(&mut self, pkt: Packet, hash_key: u32) -> (Option<PortId>, bool) {
-    // 1. 查路由表
-    let ports = self.routing.ports_for(pkt.dst)?;
-    // 2. STrack: path_hint 优先；否则 ECMP 哈希
-    let chosen = if pkt.path_hint > 0 { ports[pkt.path_hint - 1] }
-                 else { ports[hash_key % ports.len()] };
-    // 3. 检查 buffer 是否满 → 丢包
-    if port.queue_bytes + pkt.size > self.buffer_max_bytes { drop; }
-    // 4. ECN 标记
-    if port.queue_bytes + pkt.size > self.ecn_threshold_bytes { pkt.ecn = true; }
-    // 5. 入队
-    port.queue.push_back(pkt);
-}
+### 4.3 Switch
+
+交换机模型包含：
+
+- 多出端口。
+- 每端口 FIFO `VecDeque<Packet>`。
+- 每端口 `queue_bytes` 和 `busy_until`。
+- ECN threshold。
+- buffer 上限丢包。
+- 目的主机到端口列表的路由表。
+
+当前 `Switch::ingress()` 已去掉早期每包 `to_vec()` 的临时分配，通过内部 block 计算 `chosen: PortId` 后再可变访问端口。
+
+### 4.4 链路 serialization
+
+`SimRunner` 用 `link_busy_until: Vec<u64>` 建模链路串行化：
+
+```text
+send_start = max(now, link_busy_until[link_id])
+send_done  = send_start + serialization_ns(size)
+arrive     = send_done + propagation_delay
 ```
 
-### 3.4 拓扑
-
-**LeafSpine**：n_leaf × n_spine 全互联，每 leaf 下挂 hosts_per_leaf 个主机。
-
-**FatTree**：k-ary 三层，n_hosts = k³/4。详见 `src/topology/fat_tree.rs`。
+这保证同一条单向链路同一时间只能发送一个包。
 
 ---
 
-## 4. 阶段三：NIC + STrack 协议栈
+## 5. 拓扑模型
 
-### 4.1 TxNic 状态机
+### 5.1 Leaf-Spine
 
-```
-[Idle] --start_flow--> [Sending] --try_send--> 包发出
-   ▲                     │ ▲          │
-   │                     │ │ ACK      │ ECN/RTO
-   │                     │ └──cwnd++  │
-   │                     ▼            ▼
-   └──[all_acked]──── [WaitAck]   [Retx]
-```
+两层 Leaf-Spine：
 
-### 4.2 拥塞控制（核心创新）
+- hosts 从 `0` 开始连续编号。
+- leaf switch 接在 host id 后。
+- spine switch 接在 leaf id 后。
+- 每个 leaf 和每个 spine 全互联。
+- leaf 到远端 leaf 下 host 有多条等价路径。
 
-```rust
-fn on_ack(&mut self, ack: &Packet, now: u64) {
-    // 累计 ACK，更新 in_flight，移除 send_times
-    flow.un_acked_base = ack.seq;
-    flow.in_flight -= delta;
-    if ack.ecn {
-        match self.mode {
-            Strack => {
-                // 先切路：把当前路径黑名单 50us
-                self.paths[path].blacklisted_until = now + 50_000;
-                let avail = self.paths.iter().filter(|p| p.is_available(now)).count();
-                if avail == 0 { flow.cwnd /= 2; }  // 全线拥塞才降窗
-            }
-            Ecmp => {
-                flow.cwnd /= 2;  // 单路径直接降窗
-            }
-        }
-    } else {
-        flow.cwnd += 1;  // AIMD 加性增加
-    }
-}
-```
+适合模拟 AI 集群中常见的二层 CLOS/fabric 简化形态。
 
-### 4.3 RTO 超时重传
+### 5.2 Fat-Tree
 
-每次 `try_send` 时检查：
+`k`-ary 三层 Fat-Tree：
 
-```rust
-for (seq, send_t) in &flow.send_times {
-    if now - send_t > self.rto_ns {  // RTO = 100us
-        retransmit_queue.push(*seq);
-    }
-}
-```
+- hosts 数量为 `k^3 / 4`。
+- 包含 edge、aggregation、core 三层交换机。
+- 路由表在生成时完整填充。
 
-### 4.4 RxNic 与 SACK
+当前只支持确定性拓扑生成，不包含 oversubscription profile、故障域、机架/Pod 物理布局等真实部署属性。
 
-```rust
-// 64-bit bitmap 表示 [next_expected, next_expected+64) 的接收状态
-if seq == next_expected {
-    next_expected += 1;
-    // 向右移 bitmap，吃掉连续已收
-    while bits & 1 == 1 { next_expected++; bits >>= 1; }
-} else if seq > next_expected {
-    let offset = seq - next_expected;
-    if offset < 64 { bits |= 1 << offset; }
-    // 检测到 gap → 发 NACK
-}
-```
+### 5.3 Dumbbell
+
+Dumbbell 拓扑用于构造明确瓶颈链路，适合验证：
+
+- 队列堆积。
+- ECN 标记。
+- 丢包。
+- 重传。
+- TCP/STrack 在单瓶颈下的差异。
 
 ---
 
-## 5. 阶段四：流量生成与指标
+## 6. 协议抽象
 
-### 5.1 基础流量模式
-
-| 模式 | 特点 | 适用场景 |
-|------|------|---------|
-| `Incast` | N→1 同步突发 | 测试拥塞控制、Buffer 压力 |
-| `AllToAll` | 全员两两交换 | 测试全网负载均衡 |
-| `RingAllReduce` | 环形传递 | 测试 AI 集合通信 |
-| `Permutation` | 无热点排列 | 测试无偏路由 |
-| `Synthetic` | 三维可组合（分布×到达×通信对） | 系统化参数扫描 |
-| `Mix` | 多组件按比例混合 | 模拟真实混合工作负载 |
-
-### 5.2 Synthetic 通用合成流量
-
-支持以下维度自由组合：
-
-**流大小分布 `FlowSizeDist`**：
-- `Fixed(u64)` — 固定大小
-- `Uniform { min, max }` — 均匀分布
-- `Pareto { min, shape }` — 重尾分布（数据中心典型）
-- `Bimodal { small, large, large_ratio }` — 双模态 mice/elephant
-
-**到达过程 `ArrivalProcess`**：
-- `Simultaneous(t)` — 同时开始
-- `FixedInterval { start, interval_ns }` — 固定间隔
-- `Poisson { start, mean_interval_ns }` — 泊松到达
-
-**通信对 `PairPattern`**：
-- `AllToAll` / `Permutation` / `RandomPairs(n)` / `Custom`
-
-### 5.3 Incast（遗留，仍可用）
+### 6.1 Protocol trait
 
 ```rust
-pub struct Incast {
-    pub senders: Vec<EntityId>,
-    pub receiver: EntityId,
-    pub bytes_per_sender: u64,
-    pub start_time_ns: u64,
+pub trait Protocol {
+    fn start_flow(&mut self, flow_id: FlowId, dst: EntityId, total_bytes: u64, now: u64);
+    fn on_tx_tick(&mut self, now: u64) -> Vec<Packet>;
+    fn on_rx_data(&mut self, pkt: &Packet, now: u64) -> Vec<Packet>;
+    fn on_tx_control(&mut self, pkt: &Packet, now: u64);
+    fn all_flows_done(&self) -> bool;
+    fn take_finished_flows(&mut self) -> Vec<(FlowId, u64)>;
+    fn stats(&self) -> ProtocolStats;
+    fn has_pending_work(&self) -> bool;
+    fn next_rto_deadline(&self) -> Option<u64>;
 }
 ```
 
-### 5.4 Ring AllReduce
+`has_pending_work()` 和 `next_rto_deadline()` 是当前性能优化的关键：SimRunner 不再固定轮询所有活跃 host，而是由协议栈告知是否需要继续 TxTick 或等待 RTO。
 
-N 节点环形，2(N-1) 步，每步每节点发送 M/N 字节给下一节点。
+### 6.2 STrackProtocol
 
-### 5.5 SimSummary
+当前 STrack 实现支持两种模式：
 
-```rust
-pub struct SimSummary {
-    pub mode: String,
-    pub total_flows: u64,
-    pub completed_flows: u64,
-    pub total_time_ns: u64,
-    pub total_packets_sent: u64,
-    pub total_packets_retransmitted: u64,
-    pub total_ecn_marks: u64,
-    pub total_drops: u64,
-    pub fct_p50_ns: u64,
-    pub fct_p95_ns: u64,
-    pub fct_p99_ns: u64,
-    pub fct_max_ns: u64,
-    pub avg_link_util: f64,
-    pub max_queue_depth_bytes: u32,
+- `Ecmp`：单路径哈希基线，遇 ECN 直接降窗。
+- `Strack`：多路径 spraying，遇 ECN 优先黑名单路径，全部路径不可用时再降窗。
+
+主要状态：
+
+- `tx_flows: HashMap<FlowId, FlowTxState>`
+- `rx_flows: HashMap<FlowId, FlowRxState>`
+- `paths: Vec<PathState>`
+- `retransmit_queue`
+- `send_times`
+- `finished`
+
+简化点：
+
+- cwnd 是包数，不是 byte/window rate。
+- ECN 响应是简化 AIMD。
+- SACK bitmap 通过控制包 payload 编码。
+- 路径质量评估仍然很粗糙。
+
+重要风险：
+
+- 当前 ECN 路径归因仍需继续加强。理想实现应记录 `seq -> path/routing_tag`，ACK 携带或能反查原 data 包路径，否则黑名单路径可能不是实际拥塞路径。
+
+### 6.3 SimpleTcp
+
+`SimpleTcp` 用于验证 `Protocol` trait 的通用性，并提供非 STrack baseline：
+
+- 单路径。
+- 累计 ACK。
+- 简化乱序缓存。
+- 慢启动。
+- 拥塞避免。
+- 3 duplicate ACK 快速重传。
+- RTO 超时重传。
+
+它不是完整 Linux TCP，也不是 RoCE/DCQCN 的真实替代，只适合作为行为基线。
+
+---
+
+## 7. SimRunner
+
+### 7.1 集中式事件分发
+
+当前仍采用集中式分发，而不是 `Simulator::register_handler`：
+
+```text
+FlowStart      -> Protocol::start_flow + TxTick
+TxTick         -> Protocol::on_tx_tick + host uplink injection
+PacketArrive   -> host receive 或 switch ingress
+PacketDepart   -> switch egress retry/dequeue
+Timeout        -> TxTick，触发协议检查 RTO
+Stop           -> stop
+```
+
+这样可以在单个事件处理中同时读写协议、拓扑、链路 busy 状态、packet buffer 和监控状态。
+
+### 7.2 PacketSlab
+
+早期版本使用 `HashMap<u64, Packet>`；当前使用轻量 slab：
+
+```text
+PacketSlab {
+    slots: Vec<Option<Packet>>,
+    free: Vec<u64>,
 }
 ```
 
+优点：
+
+- `insert/remove` 都是数组索引访问。
+- 避免 HashMap 哈希和桶访问。
+- 内存布局更连续。
+
+代价：
+
+- `Packet.id` 不再全局单调，而是可复用 slab index。
+- 调试逐包路径时需要额外 trace id，不能再依赖 packet id 表示生命周期唯一性。
+
+当前 benchmark 显示：
+
+| 规模 | HashMap | Slab | 结论 |
+|---:|---:|---:|---|
+| 100k packets | 63.15M elem/s | 264.49M elem/s | Slab 快约 4.2x |
+| 1M packets | 24.19M elem/s | 178.55M elem/s | Slab 快约 7.4x |
+
+### 7.3 事件驱动 TxTick/RTO
+
+早期版本：
+
+- 发包后固定调度 `TxTick @ now + tx_tick_ns`。
+- 空转但活跃时调度 `TxTick @ now + 25us`。
+- ACK/NACK 到达后调度 `TxTick @ now`。
+- RTO 依赖 TxTick 采样。
+
+当前版本：
+
+- 有待发送工作时才调度下一次 TxTick。
+- 无待发送工作但存在未确认包时，调度最早 RTO `Timeout`。
+- `Timeout` 到期后触发一次 TxTick，由协议检查重传。
+- RTO 边界条件使用 `>=`，避免 `Timeout @ deadline` 到期但协议不认为超时，造成零时间事件循环。
+
 ---
 
-## 6. 端到端：SimRunner 主循环
+## 8. 流量与监控
 
-### 6.1 事件分发器
+### 8.1 流量生成
 
-```rust
-match ev.kind {
-    FlowStart { flow_id, src, dst, bytes } => proto.start_flow + schedule TxTick,
-    TxTick { host }   => handle_tx_tick(host),
-    PacketArrive @ switch => switch.ingress + try_egress,
-    PacketArrive @ host   => rx_nic.on_data / tx_nic.on_ack / on_nack,
-    PacketDepart      => try_egress 下一个包,
-}
+当前 `traffic/` 提供：
+
+| 模式 | 用途 |
+|---|---|
+| `Incast` | N-to-1 同步突发 |
+| `AllToAll` | 全员两两交换 |
+| `RingAllReduce` | 简化集合通信 |
+| `Permutation` | 无热点排列流量 |
+| `Synthetic` | 分布 × 到达过程 × 通信对组合 |
+| `Mix` | 多组件混合 workload |
+
+`Synthetic` 是后续推荐扩展入口：
+
+- `FlowSizeDist`: Fixed / Uniform / Pareto / Bimodal
+- `ArrivalProcess`: Simultaneous / FixedInterval / Poisson
+- `PairPattern`: AllToAll / Permutation / RandomPairs / Custom
+
+### 8.2 指标
+
+`SimSummary` 当前包含：
+
+- 总流数、完成流数。
+- 总仿真时间。
+- 总发送包数、总重传包数。
+- ECN 标记数、丢包数。
+- FCT P50/P95/P99/Max。
+- 平均链路利用率。
+- 最大队列深度。
+
+### 8.3 可视化
+
+`viz/` 支持：
+
+- `TimeSeriesSampler` 周期采样链路利用率和队列深度。
+- `VizData/VizNode/VizLink/VizFrame` JSON 导出。
+- `scripts/visualize_3d.py` 用 Plotly 渲染 3D 拓扑动画。
+
+---
+
+## 9. 当前测试与性能记录
+
+### 9.1 测试覆盖
+
+当前 `cargo test --release` 覆盖：
+
+| 类型 | 数量 | 说明 |
+|---|---:|---|
+| 单元测试 | 48 | core/network/nic/topology/traffic |
+| 集成/矩阵测试 | 17 | DES、Dumbbell、E2E、workload matrix |
+| 文档测试 | 1 | crate-level 示例 |
+| 合计 | 66 | 当前全部通过 |
+
+测试必须优先使用 `--release`，因为 DES 事件吞吐在 debug 模式下不足以代表真实运行。
+
+### 9.2 性能 baseline
+
+性能 baseline 已记录在：
+
+- `logs/perf_baseline_2026-05-23.md`
+- `benches/optimization_compare.rs`
+
+端到端 sanity check：
+
+```bash
+cargo run --release --example incast_compare
 ```
 
-### 6.2 全局 PID 生成器（重要 fix）
+当前结果示例：
 
-不同 TxNic 各自从 1 开始的 packet_id 在全局 `packet_buf` 中会冲突。`SimRunner` 维护 `global_pid` 字段，在 `handle_tx_tick` 中重写所有出包的 id。
+- ECMP baseline：15/15 流完成，约 `120706` events，墙钟约 `27.95ms`。
+- STrack：15/15 流完成，约 `127959` events，墙钟约 `21.36ms`。
 
-### 6.3 持续 TxTick
-
-当 cwnd 满时 ACK 才触发下一次 TxTick，但丢包后永远无 ACK；因此未完成流定期 tick 25us 检查 RTO。
-
----
-
-## 7. 实测结果
-
-**实验**：4 Leaf × 8 Spine × 4 host/leaf，15 sender × 512 KB → host 0
-
-| 指标 | ECMP | STrack | Δ |
-|------|------|--------|---|
-| 完成流数 | 15/15 | 15/15 | — |
-| 仿真总时长 | 874 us | **762 us** | **-12.8%** |
-| FCT P50 | 816.6 us | **704.7 us** | **-13.7%** |
-| FCT P99 | 848.3 us | **735.9 us** | **-13.3%** |
-| 重传包数 | 72 | 972 | +1250% |
-| ECN 标记 | 4182 | 5134 | +23% |
-| 丢包数 | 43 | 574 | +1234% |
-
-**结论**：
-- ✅ STrack FCT 改善 **~13%**，验证多路径价值
-- ⚠️ STrack 重传/丢包显著增加，因为 Packet Spraying 把负载分散到多个 spine 后单个 spine 的瞬时拥塞反而更激烈
-- 这是已知 trade-off：要进一步优化 CC（如 EWMA-based path quality scoring）才能压低重传率
+端到端墙钟受系统负载影响明显；后续优化应优先使用 Criterion benchmark 比较热路径。
 
 ---
 
-## 8. 测试覆盖
+## 10. 与大规模模型训练网络相比的主要差距
 
-| 测试类型 | 数量 | 覆盖 |
-|---------|------|------|
-| 单元测试 | 45 | core/network/nic/topology/traffic 全部模块 |
-| 集成测试 | 13 | DES 百万事件 + 端到端 Incast/Dumbell + 矩阵工作负载 |
-| 文档测试 | 1 | crate-level 用法示例 |
-| **合计** | **59** | **全部通过** ✅ |
+这一节是后续改进的核心。当前项目适合研究传输协议局部行为，但距离“可信模拟大规模模型训练网络”还有明显差距。
+
+### 10.1 训练作业语义不足
+
+真实训练网络不是独立 flow 集合，而是由训练迭代驱动：
+
+- forward。
+- backward。
+- gradient all-reduce / reduce-scatter / all-gather。
+- optimizer step。
+- pipeline bubble。
+- tensor/model/data/expert parallel 的组合。
+
+当前模型只有 `FlowDesc { src, dst, bytes, start_time }`，缺少：
+
+- iteration 结构。
+- compute 与 communication overlap。
+- collective operation DAG。
+- barrier 和依赖关系。
+- coflow 完成时间。
+- 多 job 共存和调度。
+- rank placement 对通信矩阵的影响。
+
+改进建议：
+
+1. 增加 `workload/training.rs` 或 `job/` 模块。
+2. 定义 `TrainingJob`、`Iteration`、`CollectiveOp`、`TensorShard`。
+3. 支持 `AllReduce`、`ReduceScatter`、`AllGather`、`AllToAll`、MoE dispatch/combine。
+4. 指标从单流 FCT 扩展到 iteration time、collective completion time、step time、job throughput。
+
+### 10.2 Collective 算法过于简化
+
+当前 `RingAllReduce` 是简化环形模式。真实训练中常见：
+
+- Ring AllReduce。
+- Tree / Double Binary Tree。
+- Hierarchical AllReduce。
+- ReduceScatter + AllGather。
+- 多 rail / 多 NIC 分片。
+- NCCL channel 并行。
+- topology-aware collective。
+
+当前缺口：
+
+- 没有 channel 概念。
+- 没有 chunking 和 pipelining。
+- 没有 intra-node NVLink/NVSwitch 与 inter-node fabric 的两级通信。
+- 没有 rank 到 host/GPU/NIC 的映射。
+
+改进建议：
+
+1. 把 `RingAllReduce` 从“流量模式”提升为 `CollectiveAlgorithm`。
+2. 增加 `chunk_size`、`num_channels`、`rail_count`。
+3. 明确 `rank -> gpu -> host -> nic -> leaf` 映射。
+4. 输出 collective-level 指标，而不仅是 flow FCT。
+
+### 10.3 GPU/主机/NIC 层次缺失
+
+真实节点通常不是“一个 host 一个 NIC 一个协议栈”这么简单。一个训练节点可能包含：
+
+- 多 GPU。
+- NVLink/NVSwitch。
+- 多 NIC。
+- PCIe switch。
+- NUMA。
+- GPUDirect RDMA。
+- 多 QP / 多 traffic class。
+
+当前模型：
+
+- host 是最小通信实体。
+- host 只有一个 uplink。
+- NIC 操作零延迟。
+- 不区分 GPU 内存、CPU 内存、DMA、PCIe。
+
+改进建议：
+
+1. 增加 node 内部拓扑：`GpuId`、`NicId`、`HostId`。
+2. 支持 host 多 uplink / 多 rail。
+3. 增加 NIC serialization queue、DMA delay、PCIe/NVLink 带宽限制。
+4. 支持 intra-node collective 和 inter-node collective 的组合。
+
+### 10.4 RDMA/RoCE 细节不足
+
+当前协议模型是“packet + cwnd + ACK/NACK”的简化传输层。真实 RoCE/RDMA 还涉及：
+
+- QP。
+- PSN。
+- WQE/CQE。
+- message segmentation。
+- selective repeat。
+- RNR。
+- CNP。
+- DCQCN rate control。
+- PFC/ECN 协同。
+- priority / traffic class。
+- lossless fabric 的 head-of-line blocking。
+
+当前缺口：
+
+- 没有 QP 级状态。
+- 没有 rate-based DCQCN。
+- 没有 CNP 包和 alpha 更新。
+- 没有 PFC pause/resume。
+- 没有优先级队列和 buffer sharing。
+
+改进建议：
+
+1. 增加 `RoceProtocol` 或 `DcqcnProtocol` baseline。
+2. 将 cwnd-based 简化 CC 和 rate-based CC 分开。
+3. 增加 switch priority queue、PFC threshold、pause frame 事件。
+4. 增加 per-QP/per-flow rate limiter。
+
+### 10.5 交换机与队列模型过于理想化
+
+当前 switch 模型：
+
+- 每端口一个 FIFO。
+- 单一 ECN threshold。
+- 单一 buffer max。
+- 路由查表零延迟。
+- 无共享 buffer。
+- 无 VOQ。
+- 无 priority queue。
+- 无 packet scheduling policy。
+
+真实训练网络可能需要模拟：
+
+- shared buffer。
+- dynamic threshold。
+- ECN marking profile。
+- PFC。
+- 多优先级。
+- WRR/SP/WFQ。
+- cut-through vs store-and-forward。
+- packet/cell switching。
+- ECMP group、flowlet、adaptive routing。
+- 链路故障和收敛。
+
+改进建议：
+
+1. 把 `SwitchPort.queue` 抽象为 trait 或 enum：FIFO / Priority / SharedBuffer。
+2. 增加 `QueueDiscipline` 和 `BufferModel`。
+3. 增加 switch pipeline delay。
+4. 增加 adaptive routing policy。
+
+### 10.6 路由与拓扑部署细节不足
+
+当前拓扑是干净的理论拓扑。真实集群还包含：
+
+- oversubscription。
+- rail-optimized design。
+- multi-plane fabric。
+- rack/pod/failure domain。
+- host placement。
+- asymmetric link speed。
+- failed/degraded links。
+- ECMP seed 和 hash field。
+
+当前缺口：
+
+- 没有多 rail 拓扑。
+- 没有 placement 策略。
+- 没有 link failure。
+- ECMP hash 简化为 `src ^ dst ^ flow_id`。
+
+改进建议：
+
+1. 增加 topology 配置文件，支持不同 link speed 和 oversubscription。
+2. 增加 rank placement 策略：compact/spread/random/topology-aware。
+3. 增加 failure injection。
+4. 支持 flowlet/adaptive routing。
+
+### 10.7 时间精度与事件规模冲突
+
+packet-level DES 的最大问题是事件数量。
+
+在 100Gbps、1KB MTU 下，一条链路每约 82ns 可发送一个包。若模拟 1K-10K 节点、AllToAll 或 MoE all-to-all，事件数会快速爆炸。
+
+当前已做优化：
+
+- 事件驱动 TxTick/RTO。
+- PacketSlab。
+- 4-ary heap。
+- 去掉 switch ingress 临时分配。
+
+但结构性限制仍在：
+
+- 单线程全局事件队列。
+- 每包至少多个事件。
+- 每包进入 packet buffer。
+- 每 ACK/NACK 也作为包模拟。
+
+改进方向：
+
+1. 增加 flow-level 或 hybrid 模式：大 elephant flow 用 fluid/analytic model，小 flow 用 packet-level。
+2. 增加 packet coalescing：多个同质 packet 合并成 batch event。
+3. 增加 per-link calendar queue / timing wheel，减少全局 heap 压力。
+4. 增加 parallel DES：按 topology partition 为 logical process。
+5. 增加 deterministic fast path：对无拥塞链路直接计算 arrival，不逐包入队。
+
+### 10.8 校准与验证不足
+
+当前验证主要是内部一致性测试：
+
+- 是否完成。
+- 是否触发 ECN/drop。
+- FCT 是否非零。
+- DES 排序是否正确。
+
+但要可信模拟真实训练网络，需要外部校准：
+
+- 与真实集群 telemetry 对比。
+- 与 ns-3 / htsim / OMNeT++ / Astra-sim 类工具对比。
+- 与已知论文场景复现。
+- 对不同 MTU、RTT、带宽、buffer、ECN threshold 做 sensitivity analysis。
+
+改进建议：
+
+1. 增加 `experiments/` 目录保存固定场景配置和结果。
+2. 增加 CSV/JSON trace 导出。
+3. 增加 notebook 或 Python 脚本做图。
+4. 增加基准场景：single bottleneck、incast、all-to-all、ring allreduce、reduce-scatter/allgather。
+
+### 10.9 可配置性不足
+
+当前很多参数仍硬编码在 examples/tests 中：
+
+- 拓扑规模。
+- link bandwidth。
+- ECN threshold。
+- buffer。
+- flow size。
+- protocol mode。
+- simulation end time。
+
+改进建议：
+
+1. 接入 `clap`。
+2. 增加 TOML/JSON scenario 配置。
+3. 支持命令行选择 topology/protocol/workload/output。
+4. 把结果统一输出到 `output/`，日志输出到 `logs/`。
+
+### 10.10 可观测性不足
+
+当前 summary 适合快速比较，但不足以定位大规模性能/协议问题。
+
+需要增加：
+
+- per-flow timeline。
+- per-link utilization timeseries。
+- per-queue occupancy timeseries。
+- packet drop reason。
+- retransmission cause。
+- ECN mark location。
+- control packet statistics。
+- event type histogram。
+- simulator wall-clock profiling。
+
+尤其是事件驱动优化后，必须能快速发现：
+
+- 同一时间戳事件风暴。
+- RTO 反复调度。
+- 某 host/pair 产生异常多事件。
+- 某端口队列长期不出队。
 
 ---
 
-## 9. 已知简化（与真实硬件的 gap）
+## 11. 改进路线图
 
-1. **不模拟 PCIe / DMA 开销**：所有 NIC 操作零延迟
-2. **不模拟交换机查表延迟**：路由瞬时完成
-3. **链路误码率默认为 0**：bit error 通过显式注入测试
-4. **不模拟 PFC 暂停帧**：focus 在 STrack 自身的拥塞响应
-5. **MTU 固定**：默认 1 KB
-6. **TxTick 粒度**：200 ns，影响小流的精度
-7. **CC 简化**：未实现 EWMA、HPCC 等高级算法
+### P0：保持当前 correctness baseline
 
-这些假设与 htsim、Astra-Sim 等主流学术模拟器一致。
+- [x] `cargo test --release` 全部通过。
+- [x] RTO exact-deadline 回归测试。
+- [x] `incast_compare` 不再卡住。
+- [x] `logs/perf_baseline_2026-05-23.md` 记录性能 baseline。
+
+### P1：协议与模拟器可观测性
+
+- [ ] 增加 event type histogram。
+- [ ] 增加 `run_with_progress()` 或 profiling mode。
+- [ ] 输出每类事件数量、最大 pending queue 长度、同时间戳连续事件数量。
+- [ ] packet trace 使用独立 `trace_id`，不要依赖 slab `packet.id`。
+
+### P2：训练 workload 抽象
+
+- [ ] 增加 `TrainingJob` / `CollectiveOp`。
+- [ ] 支持 reduce-scatter + all-gather。
+- [ ] 支持 chunk/channel/pipeline。
+- [ ] 输出 iteration time / collective completion time。
+
+### P3：更真实的协议 baseline
+
+- [ ] 完整 DCQCN baseline。
+- [ ] HPCC/Swift 类协议占位或简化实现。
+- [ ] PFC/CNP/priority queue。
+- [ ] 多 QP / 多 NIC。
+
+### P4：规模化性能
+
+- [ ] 继续评估 4-ary heap；如小队列退化明显，考虑混合策略或回退。
+- [ ] 减少 `Vec<Packet>` 返回分配：smallvec、callback sink 或 packet builder。
+- [ ] `next_rto_deadline()` 维护 per-protocol min-heap，避免每次遍历所有 send_times。
+- [ ] 批量 packet/event。
+- [ ] flow-level/hybrid 模式。
+
+### P5：配置、实验和校准
+
+- [ ] CLI + scenario 配置文件。
+- [ ] 固定 experiments 目录。
+- [ ] 输出 CSV/JSON trace。
+- [ ] 与外部工具或真实 telemetry 做校准。
+
+### P6：并行 DES
+
+- [ ] 拓扑 partition。
+- [ ] Logical Process 抽象。
+- [ ] 保守同步或 lookahead。
+- [ ] 明确跨 partition link event 语义。
+
+并行 DES 是大工程，不建议在训练 workload、可观测性和校准之前启动。
 
 ---
 
-## 10. 待办事项
+## 12. 当前已知技术债
 
-### 🔴 高优先级
+1. `Packet.id` 现在是 slab index，可复用；如果要做逐包 trace，需要新增稳定 `trace_id`。
+2. `summarize()` 仍用 `start_ns > 0` 过滤 flow，0ns 起始流会被忽略；应改成 `Option<FlowFct>` 或显式有效标志。
+3. `STrackProtocol` 的 ECN 路径归因需要用 `seq -> path` 或 ACK payload 明确绑定。
+4. `Protocol::on_tx_tick()` 和 `on_rx_data()` 返回 `Vec<Packet>`，高频小包/控制包场景会产生分配压力。
+5. `next_rto_deadline()` 每次遍历所有 `send_times`，大规模流数下会成为热点。
+6. `Protocol` 仍是 `Box<dyn Protocol>`，保留了 vtable 开销；后续可评估 `SimRunner<P>` 泛型化。
+7. `FlowFct` 当前只适合独立 flow，不适合 coflow/collective/job-level 指标。
+8. 当前拓扑缺少多 rail、多 NIC、oversubscription、failure domain。
 
-- [ ] **CLI + 场景配置文件**：`clap` 依赖已加入但未使用；所有参数硬编码在源码中，需要 JSON/TOML 场景文件 + 命令行入口，让模拟器作为独立工具运行
-- [ ] **Dumbell / AllToAll / RingAllReduce 无端到端示例**：三个模块已实现但无 example 或集成测试调用，需要各写一个端到端 example（`examples/dumbell_demo.rs`、`allreduce_demo.rs`、`alltoall_demo.rs`）
-- [x] **错误处理：替换裸 `unwrap()`** ✅：已实现轻量判错系统（`src/error.rs`）。`SimRunner::new()` 返回 `SimResult`；Protocol 内部不变量使用 `expect()`；已守卫的 unwrap 改为模式匹配。生产代码中 12 处裸 unwrap 已全部消除。
+---
 
-### 🟡 中优先级
+## 13. 参考文件
 
-- [ ] **更多 CC baseline**：实现完整 DCQCN（RTT-based rate control）、HPCC（INT-based）、Swift。当前 `Ecmp` 模式只是简化版 DCQCN（直接降窗，无 rate-based）
-- [ ] **故障注入**：`LinkFault` / `PacketCorruption` 事件类型，支持链路故障、瞬时拥塞、bit error 注入
-- [ ] **逐包 Trace 导出**：逐包事件时间线（send/arrive/ECN/drop/retx）导出为 JSON/CSV，配合 Python/Matplotlib 绘图脚本做可视化分析
-- [ ] **更细粒度监控**：逐流 FCT 打印、逐链路利用率时间序列、buffer 队列深度时间序列
-- [ ] **Dumbell 拓扑的端到端 example**：演示瓶颈链路拥塞场景下 ECMP vs STrack 对比
-
-### 🟢 低优先级
-
-- [ ] **网络层 Benchmark**：拓扑构建、CC 决策、包转发路径的 criterion bench（当前只有一个 DES 引擎 bench）
-- [ ] **并行仿真**：拆 actor 模型处理大规模拓扑（k=16+ FatTree，2048+ 主机）
-- [ ] **真实流量重放**：CAIDA trace 或其他真实数据中心 trace 重放
+- `src/core/queue.rs`：4-ary event queue。
+- `src/core/event.rs`：Event / EventKind。
+- `src/sim_runner/mod.rs`：SimRunner、PacketSlab、主分发。
+- `src/sim_runner/host.rs`：TxTick/RTO、host 收发。
+- `src/sim_runner/switch.rs`：switch ingress/egress。
+- `src/network/switch.rs`：FIFO queue、ECN/drop、routing。
+- `src/nic/protocol.rs`：可插拔协议接口。
+- `src/nic/strack.rs`：STrack/Ecmp 实现。
+- `src/nic/tcp.rs`：SimpleTcp 实现。
+- `src/traffic/synthetic.rs`：推荐的通用 workload 入口。
+- `src/viz/`：可视化数据采样。
+- `docs/limit.md`：大规模性能瓶颈分析。
+- `logs/perf_baseline_2026-05-23.md`：当前性能 baseline。

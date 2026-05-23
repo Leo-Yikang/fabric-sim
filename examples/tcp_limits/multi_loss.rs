@@ -70,7 +70,7 @@ fn run_one(label: &str, mode: STrackMode, use_strack: bool) -> RunResult {
     let per_flow: Vec<_> = runner
         .fcts
         .iter()
-        .map(|(fid, fct)| (*fid, fct.bytes, fct.fct_ns()))
+        .map(|fct| (fct.flow_id, fct.bytes, fct.fct_ns()))
         .collect();
 
     let summary = runner.summarize();

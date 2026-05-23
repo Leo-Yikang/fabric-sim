@@ -17,6 +17,12 @@ pub struct FlowFct {
     pub bytes: u64,
 }
 
+impl Default for FlowFct {
+    fn default() -> Self {
+        Self { flow_id: 0, start_ns: 0, finish_ns: 0, bytes: 0 }
+    }
+}
+
 impl FlowFct {
     pub fn fct_ns(&self) -> u64 { self.finish_ns.saturating_sub(self.start_ns) }
 }

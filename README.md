@@ -61,26 +61,43 @@ strack-sim/
 │   │   └── switch.rs        · Switch + Port + RoutingTable + ECN
 │   ├── topology/          ✅ 阶段二：拓扑生成
 │   │   ├── leaf_spine.rs    · 2 层 Leaf-Spine
-│   │   └── fat_tree.rs      · k-ary Fat-Tree
+│   │   ├── fat_tree.rs      · k-ary Fat-Tree
+│   │   └── dumbell.rs       · Dumbbell 拓扑
 │   ├── nic/               ✅ 阶段三：STrack 协议栈
-│   │   ├── tx.rs            · TxNic (Spraying + CWND + RTO)
-│   │   ├── rx.rs            · RxNic (Reorder + SACK Bitmap)
-│   │   └── cc.rs            · CongestionMode (Ecmp / Strack)
+│   │   ├── protocol.rs      · Protocol trait（可插拔接口）
+│   │   ├── strack.rs        · STrack 协议实现
+│   │   └── tcp.rs           · SimpleTcp 基线实现
 │   ├── traffic/           ✅ 阶段四：流量生成
 │   │   ├── incast.rs        · N-to-1 多对一拥塞
 │   │   ├── all_reduce.rs    · Ring AllReduce
-│   │   └── all_to_all.rs    · 全员两两交换
+│   │   ├── all_to_all.rs    · 全员两两交换
+│   │   ├── synthetic.rs     · 通用合成流量
+│   │   ├── permute.rs       · 排列流量
+│   │   └── mix.rs           · 混合流量
 │   ├── monitor/           ✅ 阶段四：指标采集
 │   │   └── mod.rs           · FlowFct + SimSummary
-│   └── sim_runner.rs      ✅ 端到端仿真主循环
+│   ├── sim_runner/        ✅ 端到端仿真主循环
+│   │   ├── mod.rs           · SimRunner 集中分发
+│   │   ├── host.rs          · 主机侧事件处理
+│   │   └── switch.rs        · 交换机侧事件处理
+│   └── viz/               ✅ 3D 可视化数据采集
+│       ├── data.rs           · VizData / VizNode / VizLink（serde）
+│       ├── position.rs       · 3D 坐标计算（Dumbell / LeafSpine）
+│       └── sampler.rs        · TimeSeriesSampler 链路利用率采样
 ├── examples/
 │   ├── des_demo.rs        · 阶段一：纯 DES 引擎演示
-│   └── incast_compare.rs  · 端到端：ECMP vs STrack 对比
+│   ├── incast_compare.rs  · 端到端：ECMP vs STrack 对比
+│   ├── workload_sweep.rs  · 多维度参数扫描
+│   └── viz_demo.rs        · 3D 可视化数据导出
+├── scripts/
+│   └── visualize_3d.py    · Python Plotly 3D 交互式渲染
 ├── benches/
 │   └── des_bench.rs       · DES 引擎吞吐基准
 ├── tests/
 │   ├── integration_des.rs · 百万级 DES 事件
-│   └── integration_e2e.rs · 端到端 Incast 完整性
+│   ├── integration_e2e.rs · 端到端 Incast 完整性
+│   ├── integration_dumbell.rs · Dumbbell 拓扑集成
+│   └── matrix_workloads.rs   · 参数化矩阵测试
 └── logs/                  · 运行时日志输出目录
 ```
 
@@ -98,15 +115,14 @@ cd ~/Desktop/strack-sim
 cargo build --release
 ```
 
-### 运行测试（26 个测试，全部通过）
+### 运行测试（59 个测试，全部通过）
 ```bash
 cargo test --release
 ```
 
 预期：
-- 21 个单元测试（core / network / nic / topology 模块）
-- 1 个 DES 引擎集成测试（百万级事件）
-- 3 个端到端集成测试（Incast 场景）
+- 45 个单元测试（core / network / nic / topology / traffic 模块）
+- 13 个集成测试（DES 引擎 / 端到端 / Dumbbell / 参数化矩阵）
 - 1 个文档测试
 
 ### 运行端到端演示（核心成果）
@@ -127,6 +143,28 @@ cargo run --release --example des_demo
 ```bash
 cargo bench
 ```
+
+### 3D 交互式拓扑可视化
+
+仿真过程中采集链路利用率时间序列，导出 JSON 后用 Python Plotly 渲染 3D 动画拓扑图。
+
+```bash
+# 1. 运行仿真并导出数据
+cargo run --release --example viz_demo
+
+# 2. 安装 Python 依赖（首次）
+pip install plotly
+
+# 3. 在浏览器中打开 3D 可视化
+python3 scripts/visualize_3d.py output/viz_data.json
+```
+
+可视化特性：
+- 节点：蓝色圆点（主机）+ 橙色菱形（交换机），带标签
+- 链路：颜色从绿→黄→红随利用率渐变，线宽随利用率增大
+- 底部时间滑块可拖拽或自动播放
+- 支持 3D 旋转、缩放、平移
+- 暗色主题，标题栏显示 FCT P99 / 平均利用率等摘要指标
 
 ---
 
