@@ -91,6 +91,10 @@ struct PendingMessage {
     next_packet_idx: u32,
     base_psn: Psn,
     posted_ns: u64,
+    /// RNR 重试：下次允许重试的时刻（ns）
+    pub rnr_retry_at_ns: u64,
+    /// RNR 重试次数
+    pub rnr_retries: u32,
 }
 
 // ── RdmaProtocol ──
@@ -177,7 +181,7 @@ impl RdmaProtocol {
         let qpn = pkt.qpn;
         let psn = pkt.psn;
         let flags = MsgBoundary::from_flags(pkt.msg_flags);
-        let opcode = pkt.rdma_opcode;
+        let _opcode = pkt.rdma_opcode;
 
         let reassembly = self.rx_reassembly.entry(qpn).or_insert_with(RxReassembly::new);
 
@@ -209,22 +213,6 @@ impl RdmaProtocol {
                 reassembly.received_count += 1;
                 reassembly.total_bytes += pkt.size as u64;
                 self.stats.packets_received += 1;
-
-                // 查 RNR
-                if opcode == RdmaOpcode::Send as u8 {
-                    let qp = self.qps.get(&qpn);
-                    let has_recv = qp.map(|q| q.has_recv_wqe()).unwrap_or(true);
-                    if !has_recv {
-                        // RNR NAK：通知上层
-                        if let Some(qp) = self.qps.get_mut(&qpn) {
-                            qp.rnr_naks_sent += 1;
-                        }
-                        self.stats.rnr_naks_sent += 1;
-                        // 丢弃重组状态
-                        self.rx_reassembly.remove(&qpn);
-                        return;
-                    }
-                }
 
                 // 消息完成
                 self.finished_messages.push((self.next_msg_id, qpn, now));
@@ -290,9 +278,9 @@ impl RdmaProtocol {
 
             // 新包
             while new_inflight < cwnd {
-                // 找到下一个消息
+                // 找到下一个消息（跳过 RNR 退避中的消息）
                 let msg_idx = self.pending_messages.iter()
-                    .position(|m| m.qpn == qpn && !m.done());
+                    .position(|m| m.qpn == qpn && !m.done() && now >= m.rnr_retry_at_ns);
 
                 let Some(mi) = msg_idx else { break; };
 
@@ -400,6 +388,13 @@ impl PendingMessage {
     fn done(&self) -> bool {
         self.next_packet_idx >= self.total_packets
     }
+
+    /// RNR 退避时间（ns）：指数退避，初始 100μs，最大 100ms
+    fn rnr_backoff_ns(retries: u32) -> u64 {
+        let base = 100_000u64;  // 100μs
+        let max = 100_000_000;  // 100ms
+        base.saturating_mul(1u64 << retries.min(10)).min(max)
+    }
 }
 
 impl Protocol for RdmaProtocol {
@@ -416,25 +411,64 @@ impl Protocol for RdmaProtocol {
     fn on_rx_data(&mut self, pkt: &Packet, now: u64) -> Vec<Packet> {
         self.stats.packets_received += 1;
 
+        let mut out = Vec::new();
+
         if pkt.qpn > 0 {
+            // RDMA 包：检查是否需要 RNR NAK
+            let flags = MsgBoundary::from_flags(pkt.msg_flags);
+            let needs_rnr = matches!(flags, MsgBoundary::Solo | MsgBoundary::Last)
+                && pkt.rdma_opcode == RdmaOpcode::Send as u8;
+
+            if needs_rnr {
+                let has_recv = self.qps.get(&pkt.qpn).map(|q| q.has_recv_wqe()).unwrap_or(true);
+                if !has_recv {
+                    // 回 RNR NAK
+                    let pid = self.next_packet_id; self.next_packet_id += 1;
+                    let rnr_pkt = Packet::control(pid, pid, pkt.flow_id, pkt.seq,
+                        self.host_id, pkt.src, false, 1, // control_type=1 = RNR NAK
+                        Vec::new(), now);
+                    out.push(rnr_pkt);
+                    self.stats.rnr_naks_sent += 1;
+                    if let Some(qp) = self.qps.get_mut(&pkt.qpn) {
+                        qp.rnr_naks_sent += 1;
+                    }
+                    // 丢弃重组中的消息
+                    self.rx_reassembly.remove(&pkt.qpn);
+                    return out;
+                }
+            }
+
+            // 正常处理 RDMA 数据
             self.handle_rdma_data(pkt, now);
         }
 
         // 回 ACK
         let pid = self.next_packet_id; self.next_packet_id += 1;
-        let flow = self.tx_flows.get(&pkt.flow_id);
-        let next_expected = flow.map(|f| f.un_acked_base).unwrap_or(pkt.seq + 1);
-        let ack = Packet::control(pid, pid, pkt.flow_id, next_expected,
+        let ack = Packet::control(pid, pid, pkt.flow_id, pkt.seq + 1,
             self.host_id, pkt.src, pkt.ecn, 0, Vec::new(), now);
-        vec![ack]
+        out.push(ack);
+        out
     }
 
     fn on_tx_control(&mut self, pkt: &Packet, now: u64) {
         match pkt.kind {
             crate::network::packet::PacketKind::Control(0) => self.on_ack(pkt, now),
             crate::network::packet::PacketKind::Control(1) => {
-                // RNR NAK
+                // RNR NAK：找到对应 QP 的 pending message，设置退避重试
                 self.stats.rnr_naks_received += 1;
+                if let Some(qp) = self.qps.get_mut(&pkt.qpn) {
+                    qp.rnr_naks_received += 1;
+                }
+                // 标记所有该 QP 的 pending message 需要重试
+                for msg in &mut self.pending_messages {
+                    if msg.qpn == pkt.qpn && !msg.done() {
+                        let backoff = PendingMessage::rnr_backoff_ns(msg.rnr_retries);
+                        msg.rnr_retries += 1;
+                        msg.rnr_retry_at_ns = now.saturating_add(backoff);
+                        // 重置发包指针，从头重发
+                        msg.next_packet_idx = 0;
+                    }
+                }
             }
             _ => {}
         }
@@ -486,6 +520,7 @@ impl Protocol for RdmaProtocol {
             opcode: RdmaOpcode::Send,
             total_bytes: bytes, total_packets,
             next_packet_idx: 0, base_psn, posted_ns: now,
+            rnr_retry_at_ns: 0, rnr_retries: 0,
         });
     }
 
@@ -500,6 +535,7 @@ impl Protocol for RdmaProtocol {
             opcode: RdmaOpcode::Write,
             total_bytes: bytes, total_packets,
             next_packet_idx: 0, base_psn, posted_ns: now,
+            rnr_retry_at_ns: 0, rnr_retries: 0,
         });
     }
 
@@ -552,6 +588,7 @@ mod tests {
             msg_id: 0, qpn: 0, dst: 1, opcode: RdmaOpcode::Send,
             total_bytes: MTU_BYTES as u64, total_packets: 1,
             next_packet_idx: 0, base_psn: 0, posted_ns: 0,
+            rnr_retry_at_ns: 0, rnr_retries: 0,
         };
         let segs = RdmaProtocol::segment_message(&msg);
         assert_eq!(segs.len(), 1);
@@ -565,6 +602,7 @@ mod tests {
             msg_id: 0, qpn: 0, dst: 1, opcode: RdmaOpcode::Send,
             total_bytes: MTU_BYTES as u64 * 3, total_packets: 3,
             next_packet_idx: 0, base_psn: 10, posted_ns: 0,
+            rnr_retry_at_ns: 0, rnr_retries: 0,
         };
         let segs = RdmaProtocol::segment_message(&msg);
         assert_eq!(segs.len(), 3);
