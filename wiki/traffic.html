@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>traffic 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:18px}
+  h3{font-size:1.2rem;color:var(--accent2);margin:16px 0 8px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.02rem}
+  ul{padding-left:24px;margin:8px 0}
+  li{margin:5px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:14px 18px;font-family:"Fira Code","Consolas",monospace;font-size:.88rem;overflow-x:auto;color:#c9d1d9;margin:12px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:8px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:12px 16px;border-radius:0 10px 10px 0;margin:12px 0;color:var(--muted);font-size:.95rem}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">traffic 模块</span>
+</div>
+
+<div class="slide-container">
+
+<!-- Slide 1 -->
+<section class="slide active">
+  <h2>📡 traffic — 流量生成器</h2>
+  <p style="font-size:1.15rem;color:var(--muted);margin-bottom:18px">阶段四：从简单模式到通用合成流量，覆盖 AI 集群典型通信模式</p>
+  <div class="cols">
+    <div class="col">
+      <h3>模块文件</h3>
+      <div class="code-block">src/traffic/
+├── mod.rs           <span class="comment"># FlowDesc 结构</span>
+├── incast.rs        <span class="comment"># N-to-1 多对一</span>
+├── all_reduce.rs    <span class="comment"># Ring AllReduce 流量</span>
+├── all_to_all.rs    <span class="comment"># 全员两两交换</span>
+├── synthetic.rs     <span class="comment"># 通用合成流量（核心）</span>
+├── permute.rs       <span class="comment"># 排列流量</span>
+└── mix.rs           <span class="comment"># 混合流量组合</span></div>
+    </div>
+    <div class="col">
+      <h3>FlowDesc：流量的最小描述</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">FlowDesc</span> {
+    <span class="keyword">pub</span> flow_id: <span class="type">FlowId</span>,
+    <span class="keyword">pub</span> src: <span class="type">EntityId</span>,
+    <span class="keyword">pub</span> dst: <span class="type">EntityId</span>,
+    <span class="keyword">pub</span> bytes: <span class="type">u64</span>,
+    <span class="keyword">pub</span> start_time_ns: <span class="type">u64</span>,
+}</div>
+      <p>所有流量生成器最终都输出 Vec&lt;FlowDesc&gt;，由 SimRunner::inject_flows() 转换为 FlowStart 事件序列。</p>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 2 -->
+<section class="slide">
+  <h2>Synthetic：三维组合流量生成器</h2>
+  <p>通过 PairPattern × FlowSizeDist × ArrivalProcess 的组合，覆盖绝大多数学术评估场景。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>PairPattern（通信对）</h3>
+      <ul>
+        <li><strong>AllToAll</strong>：所有节点两两之间各发一条流</li>
+        <li><strong>Permutation</strong>：随机排列，无不动点，无热点</li>
+        <li><strong>RandomPairs(n)</strong>：随机生成 n 条源目的对</li>
+        <li><strong>Custom</strong>：完全自定义列表</li>
+      </ul>
+      <h3>ArrivalProcess（到达过程）</h3>
+      <ul>
+        <li><strong>Simultaneous(t)</strong>：所有流同时开始</li>
+        <li><strong>FixedInterval</strong>：固定间隔到达</li>
+        <li><strong>Poisson</strong>：指数分布间隔，模拟突发</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>FlowSizeDist（流大小）</h3>
+      <div class="code-block"><span class="keyword">pub enum</span> <span class="type">FlowSizeDist</span> {
+    <span class="type">Fixed</span>(<span class="type">u64</span>),
+    <span class="type">Uniform</span> { min: <span class="type">u64</span>, max: <span class="type">u64</span> },
+    <span class="type">Pareto</span> { min: <span class="type">u64</span>, shape: <span class="type">f64</span> },   <span class="comment">// 重尾分布</span>
+    <span class="type">Bimodal</span> { small: <span class="type">u64</span>, large: <span class="type">u64</span>, large_ratio: <span class="type">f64</span> },
+}</div>
+      <p>Pareto 逆变换采样：<code>X = x_min / U^(1/alpha)</code>，数据中心流量典型特征（大量 mice + 少量 elephant）。</p>
+      <div class="note">所有随机数使用 rand_pcg::Pcg64 + 显式 seed，保证跨平台、跨运行的结果可复现。</div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 3 -->
+<section class="slide">
+  <h2>测试与使用示例</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>典型用法</h3>
+      <div class="code-block"><span class="keyword">let</span> flows = <span class="type">Synthetic</span> {
+    nodes: (<span class="num">0</span>..<span class="num">16</span>).collect(),
+    pair_pattern: <span class="type">PairPattern</span>::<span class="type">AllToAll</span>,
+    flow_size: <span class="type">FlowSizeDist</span>::<span class="type">Pareto</span> {
+        min: <span class="num">4096</span>, shape: <span class="num">1.5</span>
+    },
+    arrival: <span class="type">ArrivalProcess</span>::<span class="type">Poisson</span> {
+        start: <span class="num">1000</span>,
+        mean_interval_ns: <span class="num">50_000</span>,
+    },
+    seed: <span class="num">42</span>,
+}.generate();
+
+runner.inject_flows(flows);
+runner.run(<span class="num">1_000_000_000</span>);</div>
+    </div>
+    <div class="col">
+      <h3>单元测试覆盖</h3>
+      <ul>
+        <li>Fixed + Simultaneous：正确数量和大小</li>
+        <li>Pareto 重尾：最大值远超 min</li>
+        <li>Bimodal 比例：large_ratio 统计验证</li>
+        <li>Poisson 单调性：时间非递减</li>
+        <li>Permutation 无不动点 + 双射</li>
+        <li>RandomPairs 精确数量 + src≠dst</li>
+      </ul>
+      <div class="note">Synthetic 是矩阵测试（matrix_workloads.rs）的核心工具，系统覆盖拓扑 × 协议 × 分布 × 到达 × 模式的组合。</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">3</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>

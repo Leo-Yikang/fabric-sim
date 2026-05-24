@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>sim_runner 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:18px}
+  h3{font-size:1.2rem;color:var(--accent2);margin:16px 0 8px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.02rem}
+  ul{padding-left:24px;margin:8px 0}
+  li{margin:5px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:14px 18px;font-family:"Fira Code","Consolas",monospace;font-size:.88rem;overflow-x:auto;color:#c9d1d9;margin:12px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:8px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:12px 16px;border-radius:0 10px 10px 0;margin:12px 0;color:var(--muted);font-size:.95rem}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">sim_runner 模块</span>
+</div>
+
+<div class="slide-container">
+
+<section class="slide active">
+  <h2>🚀 sim_runner — 端到端仿真主循环</h2>
+  <p style="font-size:1.15rem;color:var(--muted);margin-bottom:18px">集中式事件分发 orchestrator：连接 DES 引擎、拓扑、协议栈与流量</p>
+  <div class="cols">
+    <div class="col">
+      <h3>模块文件</h3>
+      <div class="code-block">src/sim_runner/
+├── mod.rs      <span class="comment"># SimRunner 结构体、初始化、事件分发、统计汇总</span>
+├── host.rs     <span class="comment"># 主机侧：TxTick 驱动发送、PacketArrive 处理收包</span>
+└── switch.rs   <span class="comment"># 交换机侧：ingress 路由入队、egress 出队转发</span></div>
+      <h3>核心设计</h3>
+      <ul>
+        <li>不使用 Simulator::register_handler（受 borrow checker 限制）</li>
+        <li>SimRunner 直接读写 protocols / topo.switches / packet_buf</li>
+        <li>所有事件处理完成后统一 schedule 新事件</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>事件流全景</h3>
+      <div class="code-block">FlowStart → Protocol.start_flow()
+        ↓
+    TxTick → Protocol.on_tx_tick() → 包入 packet_buf
+        ↓
+    PacketDepart(链路) → 序列化+传播延迟
+        ↓
+    PacketArrive@Switch → Switch.ingress() → 入队
+        ↓
+    PacketDepart@Port → 出队 → 下一跳
+        ↓
+    PacketArrive@Host → Data: on_rx_data() → ACK/NACK
+                      → Control: on_tx_control()</div>
+      <div class="note">全局 Packet ID 由 SimRunner 的 PacketSlab 统一分配，每个 TxNic 局部 packet_id 会被重写为全局唯一值。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>SimRunner 核心数据结构</h2>
+  <p>SimRunner 是仿真的"中央大脑"，持有所有跨组件需要共享的状态。</p>
+  <div class="code-block"><span class="keyword">pub struct</span> <span class="type">SimRunner</span> {
+    <span class="keyword">pub</span> sim: <span class="type">Simulator</span>,
+    <span class="keyword">pub</span> topo: <span class="type">Topology</span>,
+    <span class="keyword">pub</span> protocols: <span class="type">Vec</span>&lt;<span class="type">Box</span>&lt;<span class="keyword">dyn</span> <span class="type">Protocol</span>&gt;&gt;,   <span class="comment">// 每个 host 一个协议栈</span>
+    <span class="keyword">pub</span> link_busy_until: <span class="type">Vec</span>&lt;<span class="type">u64</span>&gt;,       <span class="comment">// 链路串行化：下一个空闲时刻</span>
+    packet_buf: <span class="type">PacketSlab</span>,            <span class="comment">// 轻量 Slab allocator</span>
+    <span class="keyword">pub</span> fcts: <span class="type">Vec</span>&lt;<span class="type">FlowFct</span>&gt;,             <span class="comment">// 每条流的完成时间记录</span>
+    <span class="keyword">pub</span> link_bytes_sent: <span class="type">Vec</span>&lt;<span class="type">u64</span>&gt;,      <span class="comment">// 链路累计字节（用于利用率）</span>
+    <span class="keyword">pub</span> sampler: <span class="type">TimeSeriesSampler</span>,   <span class="comment">// 3D 可视化时序采样</span>
+    <span class="keyword">pub</span> host_delays: <span class="type">HostDelayConfig</span>,  <span class="comment">// 主机内部硬件延迟</span>
+    <span class="keyword">pub</span> host_tx_busy_until: <span class="type">Vec</span>&lt;<span class="type">u64</span>&gt;,   <span class="comment">// 主机 DMA 引擎串行化</span>
+    switch_index: <span class="type">Vec</span>&lt;<span class="type">usize</span>&gt;,         <span class="comment">// switch EntityId → Vec 索引映射</span>
+    next_trace_id: <span class="type">u64</span>,                <span class="comment">// 全局单调递增追踪 ID</span>
+    pending_timeout_deadline: <span class="type">Vec</span>&lt;<span class="type">u64</span>&gt;, <span class="comment">// 每个 host 的待处理 Timeout</span>
+}</div>
+  <div class="note">switch_index 用 Dense array 做 O(1) 映射：EntityId 可能不连续（如 host 后接 switch），但最大 ID 通常不大，Vec 索引比 HashMap 快且省内存。</div>
+</section>
+
+<section class="slide">
+  <h2>PacketSlab：轻量包分配器</h2>
+  <p>Event 只携带 packet_id，实际 Packet 存在 SimRunner 的 slab 中。相比 HashMap&lt;u64, Packet&gt;，Slab 更缓存友好。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>实现</h3>
+      <div class="code-block"><span class="keyword">struct</span> <span class="type">PacketSlab</span> {
+    slots: <span class="type">Vec</span>&lt;<span class="type">Option</span>&lt;<span class="type">Packet</span>&gt;&gt;,
+    free: <span class="type">Vec</span>&lt;<span class="type">u64</span>&gt;,              <span class="comment">// 回收的索引复用</span>
+}
+
+<span class="keyword">fn</span> <span class="highlight">insert</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, <span class="keyword">mut</span> pkt: <span class="type">Packet</span>) -> <span class="type">u64</span> {
+    <span class="keyword">let</span> id = <span class="keyword">if let</span> <span class="type">Some</span>(id) = <span class="keyword">self</span>.free.pop() {
+        <span class="keyword">self</span>.slots[id <span class="keyword">as</span> <span class="type">usize</span>] = <span class="type">Some</span>(pkt);
+        id
+    } <span class="keyword">else</span> {
+        <span class="keyword">let</span> id = <span class="keyword">self</span>.slots.len() <span class="keyword">as</span> <span class="type">u64</span>;
+        <span class="keyword">self</span>.slots.push(<span class="type">Some</span>(pkt));
+        id
+    };
+    <span class="keyword">self</span>.slots[id <span class="keyword">as</span> <span class="type">usize</span>].<span class="keyword">as_mut</span>().unwrap().id = id;
+    id
+}
+
+<span class="keyword">fn</span> <span class="highlight">remove</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, id: <span class="type">u64</span>) -> <span class="type">Option</span>&lt;<span class="type">Packet</span>&gt; {
+    <span class="keyword">let</span> val = <span class="keyword">self</span>.slots[id <span class="keyword">as</span> <span class="type">usize</span>].take();
+    <span class="keyword">if</span> val.is_some() { <span class="keyword">self</span>.free.push(id); }
+    val
+}</div>
+    </div>
+    <div class="col">
+      <h3>为什么不用 HashMap？</h3>
+      <ul>
+        <li><strong>O(1) 无哈希</strong>：直接数组索引，无哈希函数开销</li>
+        <li><strong>缓存友好</strong>：Option&lt;Packet&gt; 连续存储，预取效率高</li>
+        <li><strong>自动复用</strong>：free 列表管理回收索引，内存不无限增长</li>
+        <li><strong>确定性 ID</strong>：与全局 trace_id 分离，slab 索引用于事件间传递</li>
+      </ul>
+      <div class="note">trace_id 是单调递增的全局追踪 ID（用于可观测性），与 slab 索引解耦。即使同一个物理包被重新插入 slab（如转发时），trace_id 保持不变。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>主机侧事件处理（host.rs）</h2>
+  <p>TxTick 驱动协议栈发包，同时注入主机内部硬件延迟（DMA / doorbell / PCIe）。</p>
+  <div class="code-block"><span class="comment">// handle_tx_tick 核心片段</span>
+<span class="keyword">for mut</span> pkt <span class="keyword">in</span> pkts {
+    <span class="keyword">let</span> dma_time = <span class="keyword">self</span>.host_delays.tx_dma_time(host, pkt.size <span class="keyword">as</span> <span class="type">u64</span>);
+    <span class="keyword">let</span> fixed = <span class="keyword">self</span>.host_delays.tx_fixed_overhead(host);
+
+    <span class="comment">// DMA 开始 = max(当前时间+固定开销, DMA引擎空闲时刻)</span>
+    <span class="keyword">let</span> dma_start = (now + fixed).max(<span class="keyword">self</span>.host_tx_busy_until[host_idx]);
+    <span class="keyword">let</span> nic_depart_time = dma_start + dma_time;
+
+    <span class="comment">// 更新主机侧指标</span>
+    <span class="keyword">self</span>.host_total_fixed_overhead_ns += fixed;
+    <span class="keyword">self</span>.host_total_dma_time_ns += dma_time;
+    <span class="keyword">self</span>.host_total_queue_wait_ns += dma_start - (now + fixed);
+
+    <span class="comment">// 占用 DMA 引擎直到本包离开主机</span>
+    <span class="keyword">self</span>.host_tx_busy_until[host_idx] = nic_depart_time;
+    pkt.depart_time = nic_depart_time;
+
+    <span class="comment">// 链路串行化</span>
+    <span class="keyword">let</span> start = <span class="keyword">self</span>.link_busy_until[link_id].max(nic_depart_time);
+    <span class="keyword">let</span> depart_done = start + link.serialization_ns(pkt.size);
+    <span class="keyword">let</span> arrive = depart_done + link.prop_delay_ns;
+    <span class="keyword">self</span>.link_busy_until[link_id] = depart_done;
+}</div>
+  <div class="note">链路模型和主机 DMA 模型都使用 "busy_until" 模式：下一个包的开始时间 = max(当前请求时间, 资源空闲时间)。这是离散事件仿真中建模串行资源的经典技巧。</div>
+</section>
+
+<section class="slide">
+  <h2>交换机侧事件处理（switch.rs）</h2>
+  <p>PacketArrive @ switch → ingress → 入队 → try_egress。Egress 由端口空闲状态驱动。</p>
+  <div class="code-block"><span class="keyword">pub</span>(<span class="keyword">super</span>) <span class="keyword">fn</span> <span class="highlight">handle_packet_arrive</span>(...) {
+    <span class="comment">// 1. 从 slab 取出包</span>
+    <span class="keyword">let</span> pkt = <span class="keyword">self</span>.packet_buf_remove(pid)?;
+
+    <span class="comment">// 2. 交换机 ingress（路由 + 判丢包 + 判 ECN + 入队）</span>
+    <span class="keyword">let</span> hash_key = pkt.src ^ pkt.dst ^ pkt.flow_id;
+    <span class="keyword">let</span> (port_opt, dropped) = sw.ingress(pkt, hash_key, now);
+    <span class="keyword">if</span> dropped { <span class="keyword">return</span>; }
+
+    <span class="comment">// 3. 尝试 egress（如果端口空闲立即发，否则调度 PacketDepart）</span>
+    <span class="keyword">self</span>.try_egress(sw_idx, port, now, pid, pkt_size);
+}</div>
+  <div class="code-block"><span class="keyword">fn</span> <span class="highlight">try_egress</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, sw_idx, port, now, ...) {
+    <span class="keyword">if</span> busy_until <= now {
+        <span class="comment">// 端口空闲：立即出队转发</span>
+        <span class="keyword">let</span> pkt = sw.dequeue(port)?;
+        <span class="comment">// 计算链路 serialization + prop，调度 PacketArrive 到下一跳</span>
+        ...
+        <span class="comment">// 如果队列仍非空，调度 PacketDepart 在 depart_done 时刻重试</span>
+        <span class="keyword">if</span> still_queued && !p.egress_pending {
+            p.egress_pending = <span class="keyword">true</span>;
+            sim.schedule(<span class="type">Event</span>::new(depart_done, <span class="type">PacketDepart</span>{...}, sw_id));
+        }
+    } <span class="keyword">else</span> {
+        <span class="comment">// 端口忙：调度 PacketDepart 在 busy_until 时刻重试</span>
+        <span class="keyword">if</span> !p.egress_pending {
+            p.egress_pending = <span class="keyword">true</span>;
+            sim.schedule(<span class="type">Event</span>::new(busy_until, <span class="type">PacketDepart</span>{...}, sw_id));
+        }
+    }
+}</div>
+  <div class="note">egress_pending 布尔标志防止同一端口堆积多个 PacketDepart 事件。队列中已有的 Pending 事件会在处理时自动连续驱动后续包。</div>
+</section>
+
+<section class="slide">
+  <h2>调度优化：取消冗余 Timeout</h2>
+  <p>当 ACK 提前到达并触发 TxTick 时，之前调度的 RTO Timeout 变为冗余。SimRunner 通过两层机制清理。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>逻辑取消</h3>
+      <div class="code-block"><span class="comment">// schedule_host_next_action 中</span>
+<span class="keyword">if</span> has_pending_work {
+    <span class="keyword">self</span>.pending_timeout_deadline[host] = <span class="type">u64</span>::MAX;
+    <span class="keyword">self</span>.cancel_host_timeouts(host);
+    <span class="comment">// 调度 TxTick...</span>
+}
+
+<span class="comment">// dispatch 中处理 Timeout 事件时</span>
+<span class="type">EventKind</span>::<span class="type">Timeout</span>{..} => {
+    <span class="keyword">if</span> ev.time != pending_timeout_deadline[host] {
+        <span class="keyword">return</span>;   <span class="comment">// 已被逻辑取消，忽略</span>
+    }
+    ...
+}</div>
+    </div>
+    <div class="col">
+      <h3>物理删除</h3>
+      <div class="code-block"><span class="keyword">fn</span> <span class="highlight">cancel_host_timeouts</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, host: <span class="type">EntityId</span>) -> <span class="type">usize</span> {
+    <span class="keyword">self</span>.sim.cancel_where(|ev|
+        ev.target == host && matches!(ev.kind, <span class="type">Timeout</span>{..})
+    )
+}</div>
+      <p>cancel_where 内部 O(n) 扫描事件队列并重建 4-ary heap，适合批量清理。</p>
+      <div class="note">两层机制结合：逻辑取消保证即使物理删除滞后，过时 Timeout 也不会误触发；物理删除避免事件队列无限增长。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2> summarize()：仿真结果汇总</h2>
+  <p>仿真结束后聚合 FCT、丢包、链路利用率、主机侧指标、Training 指标等多维数据。</p>
+  <div class="code-block"><span class="keyword">pub fn</span> <span class="highlight">summarize</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>) -> <span class="type">SimSummary</span> {
+    <span class="keyword">let mut</span> summary = <span class="type">SimSummary</span>::from_fcts(&<span class="keyword">self</span>.protocol_name, &<span class="keyword">mut</span> fct_list);
+
+    <span class="comment">// 1. 协议层统计：总发包、重传</span>
+    <span class="keyword">for</span> proto <span class="keyword">in</span> &<span class="keyword">self</span>.protocols {
+        summary.total_packets_sent += stats.packets_sent;
+        summary.total_packets_retransmitted += stats.packets_retransmitted;
+    }
+
+    <span class="comment">// 2. 交换机统计：ECN、丢包（分原因/逐流/逐端口）</span>
+    <span class="keyword">for</span> sw <span class="keyword">in</span> &<span class="keyword">self</span>.topo.switches {
+        summary.total_ecn_marks += sw.ecn_marks;
+        summary.total_drops += sw.drop_counters.total;
+        summary.drop_breakdown.buffer_full += ...;
+        <span class="comment">// 回填逐流丢包到 fcts</span>
+        <span class="keyword">for</span> (&fid, pfd) <span class="keyword">in</span> &sw.drop_counters.per_flow { ... }
+    }
+
+    <span class="comment">// 3. 链路利用率 = 实际发送字节 / 链路容量 × 时间</span>
+    <span class="keyword">let</span> total_bw_per_ns = links.map(|l| l.bw <span class="keyword">as</span> <span class="type">f64</span> / <span class="num">1e9</span> / <span class="num">8.0</span>).sum();
+    summary.avg_link_util = sent_bytes / (total_bw_per_ns * total_time);
+
+    <span class="comment">// 4. Training 指标（如果有）</span>
+    <span class="keyword">self</span>.compute_training_metrics();
+    summary
+}</div>
+  <div class="note">SimSummary 支持 pretty_print（终端表格）、to_csv_row（批量实验）、to_json（可视化对接）三种输出格式。</div>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">7</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>

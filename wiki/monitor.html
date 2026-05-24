@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>monitor 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:18px}
+  h3{font-size:1.2rem;color:var(--accent2);margin:16px 0 8px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.02rem}
+  ul{padding-left:24px;margin:8px 0}
+  li{margin:5px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:14px 18px;font-family:"Fira Code","Consolas",monospace;font-size:.88rem;overflow-x:auto;color:#c9d1d9;margin:12px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:8px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:12px 16px;border-radius:0 10px 10px 0;margin:12px 0;color:var(--muted);font-size:.95rem}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">monitor 模块</span>
+</div>
+
+<div class="slide-container">
+
+<!-- Slide 1 -->
+<section class="slide active">
+  <h2>📊 monitor — 指标采集与日志</h2>
+  <p style="font-size:1.15rem;color:var(--muted);margin-bottom:18px">阶段四：从 FCT 到丢包归因，再到运行剖面，多维可观测性</p>
+  <div class="cols">
+    <div class="col">
+      <h3>核心指标</h3>
+      <ul>
+        <li><strong>FCT</strong>：Flow Completion Time，P50/P95/P99/Max</li>
+        <li><strong>丢包</strong>：总数 + 分原因 + 逐流 + 逐端口 + 逐交换机</li>
+        <li><strong>ECN</strong>：标记总数，反映拥塞程度</li>
+        <li><strong>链路利用率</strong>：基于 link_bytes_sent / (bw × time)</li>
+        <li><strong>队列深度</strong>：交换机端口历史最大排队字节</li>
+        <li><strong>主机侧</strong>：固定开销 / DMA 时间 / 排队等待</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>模块结构</h3>
+      <div class="code-block">src/monitor/mod.rs
+├── <span class="type">FlowFct</span>           <span class="comment"># 单条流完成时间 + 丢包数</span>
+├── <span class="type">EventHistogram</span>    <span class="comment"># 事件类型直方图（P1 可观测性）</span>
+├── <span class="type">RunProfile</span>        <span class="comment"># 运行剖面（max pending、bust）</span>
+├── <span class="type">DropBreakdown</span>     <span class="comment"># 丢包明细（分原因/逐流/逐端口）</span>
+├── <span class="type">HostMetrics</span>       <span class="comment"># 主机侧硬件延迟指标</span>
+└── <span class="type">SimSummary</span>        <span class="comment"># 汇总结构，支持 pretty/CSV/JSON</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 2 -->
+<section class="slide">
+  <h2>SimSummary：三种输出格式</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>终端表格（pretty_print）</h3>
+      <div class="code-block">┌─────────── 仿真结果 [strack] ────────────
+│ 总流数              1000
+│ 完成流数            1000
+│ 仿真总时长          12.345 ms
+│ 总发送包数          52431
+│ 总重传包数          123
+│ ECN 标记总数        456
+│ 丢包总数            12
+│ FCT P50             45.231 us
+│ FCT P95             123.456 us
+│ FCT P99             234.567 us
+│ FCT Max             890.123 us
+│ 平均链路利用率      78.5%
+└──────────────────────────────────────────</div>
+    </div>
+    <div class="col">
+      <h3>CSV / JSON 导出</h3>
+      <div class="code-block"><span class="comment">// 批量实验写入 CSV</span>
+<span class="keyword">pub fn</span> <span class="highlight">csv_header</span>() -> &'<span class="keyword">static</span> <span class="type">str</span> { ... }
+<span class="keyword">pub fn</span> <span class="highlight">to_csv_row</span>(&<span class="keyword">self</span>) -> <span class="type">String</span> { ... }
+
+<span class="comment">// 可视化 / 外部工具对接</span>
+<span class="keyword">pub fn</span> <span class="highlight">to_json</span>(&<span class="keyword">self</span>) -> <span class="type">String</span> {
+    serde_json::to_string(<span class="keyword">self</span>).unwrap_or(<span class="string">"{}"</span>.to_string())
+}</div>
+      <p>CSV 表头包含 20 个字段，覆盖模式、流数、时间、包数、FCT 分位值、利用率、主机指标等全部维度。</p>
+      <div class="note">pretty_print 在 cargo run 示例时直接输出到终端；CSV/JSON 用于批量参数扫描和后续 Python/R 分析。</div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 3 -->
+<section class="slide">
+  <h2>可观测性增强（P1）</h2>
+  <p>SimRunner 在 dispatch() 中实时更新事件直方图、pending 长度、同时间戳 burst 等诊断信息。</p>
+  <div class="code-block"><span class="comment">// dispatch() 中的可观测性代码</span>
+<span class="keyword">self</span>.event_histogram.record(&ev.kind);
+
+<span class="keyword">let</span> pending = <span class="keyword">self</span>.sim.pending();
+<span class="keyword">if</span> pending > <span class="keyword">self</span>.max_pending {
+    <span class="keyword">self</span>.max_pending = pending;   <span class="comment">// 事件队列峰值</span>
+}
+
+<span class="keyword">if</span> ev.time == <span class="keyword">self</span>.last_event_time {
+    <span class="keyword">self</span>.same_time_count += <span class="num">1</span>;
+} <span class="keyword">else</span> {
+    <span class="keyword">self</span>.same_time_count = <span class="num">1</span>;
+    <span class="keyword">self</span>.last_event_time = ev.time;
+}
+<span class="keyword">if</span> <span class="keyword">self</span>.same_time_count > <span class="keyword">self</span>.max_same_time_burst {
+    <span class="keyword">self</span>.max_same_time_burst = <span class="keyword">self</span>.same_time_count;  <span class="comment">// 检测事件风暴</span>
+}</div>
+  <div class="note">max_same_time_burst 是诊断仿真稳定性的关键指标。如果该值持续增长到数万，说明模型存在"瞬时同步"问题（如所有 Timeout 在同一时刻触发），需要调整事件生成逻辑。</div>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">3</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>

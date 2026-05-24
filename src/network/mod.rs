@@ -13,5 +13,5 @@ pub mod drop;
 pub use packet::{Packet, PacketKind, FlowId, SeqNum, PacketId, MTU_BYTES};
 pub use link::{Link, LinkId, LinkRegistry};
 pub use switch::{Switch, SwitchPort, PortId, RoutingTable};
-pub use host_delay::{NodeTopology, GpuLink};
+pub use host_delay::{NodeTopology, GpuLink, HostDelayModel, HostDelayConfig};
 pub use drop::{DropReason, DropEvent, DropCounters, PerFlowDrops};

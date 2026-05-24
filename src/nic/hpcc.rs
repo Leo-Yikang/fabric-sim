@@ -12,7 +12,7 @@
 //! - 调整公式简化为：rate *= target_util / current_util
 
 use super::protocol::{Protocol, ProtocolStats};
-use crate::network::packet::{FlowId, Packet, MTU_BYTES};
+use crate::network::packet::{FlowId, Packet, SeqNum, MTU_BYTES};
 use crate::EntityId;
 use std::collections::HashMap;
 
@@ -305,6 +305,14 @@ impl Protocol for HpccProtocol {
             }
         }
         min_time
+    }
+
+    fn update_send_time(&mut self, flow_id: FlowId, seq: SeqNum, nic_depart_time: u64) {
+        if let Some(f) = self.tx_flows.get_mut(&flow_id) {
+            if f.send_times.contains_key(&seq) {
+                f.send_times.insert(seq, nic_depart_time);
+            }
+        }
     }
 }
 

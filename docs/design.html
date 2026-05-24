@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fabric-Sim 设计文档</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --fg: #1e293b;
+      --accent: #2563eb;
+      --accent-light: #dbeafe;
+      --border: #cbd5e1;
+      --code-bg: #f1f5f9;
+      --header-bg: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      --shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.7;
+    }
+    .page-header {
+      background: var(--header-bg);
+      color: #fff;
+      padding: 3rem 2rem 2rem;
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .page-header h1 {
+      margin: 0 0 0.5rem;
+      font-size: 2.2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .page-header .meta {
+      opacity: 0.85;
+      font-size: 0.95rem;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    #TOC {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+    #TOC > ul { padding-left: 0; }
+    #TOC li { list-style: none; margin: 0.3rem 0; }
+    #TOC a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #TOC a:hover { text-decoration: underline; }
+    h1, h2, h3, h4 {
+      font-weight: 600;
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+      scroll-margin-top: 1rem;
+    }
+    h1 { font-size: 1.8rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.5rem; }
+    h2 { font-size: 1.5rem; color: #334155; }
+    h3 { font-size: 1.25rem; color: #475569; }
+    h4 { font-size: 1.1rem; color: #64748b; }
+    p { margin: 1rem 0; }
+    a { color: var(--accent); }
+    blockquote {
+      margin: 1.5rem 0;
+      padding: 1rem 1.5rem;
+      background: var(--accent-light);
+      border-left: 4px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      color: #1e3a5f;
+    }
+    code {
+      font-family: "JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace;
+      background: var(--code-bg);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    pre {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 1.25rem;
+      border-radius: 10px;
+      overflow-x: auto;
+      box-shadow: var(--shadow);
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      font-size: 0.95rem;
+    }
+    th {
+      background: #f1f5f9;
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 2px solid var(--border);
+    }
+    td {
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    ul, ol { padding-left: 1.5rem; }
+    li { margin: 0.35rem 0; }
+    hr {
+      border: none;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+      margin: 2.5rem 0;
+    }
+    @media (max-width: 640px) {
+      .container { padding: 1rem; }
+      .page-header h1 { font-size: 1.6rem; }
+      table { font-size: 0.85rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="page-header">
+  <h1>📐 Fabric-Sim 设计文档</h1>
+  <div class="meta">版本 v1.1 · 维护：kiwios-cn · 2026-05-23</div>
+</div>
+<div class="container">
+
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#fabric-sim-设计文档"
+id="toc-fabric-sim-设计文档">Fabric-Sim 设计文档</a>
+<ul>
+<li><a href="#项目定位" id="toc-项目定位">1. 项目定位</a></li>
+<li><a href="#当前总体架构" id="toc-当前总体架构">2.
+当前总体架构</a></li>
+<li><a href="#des-引擎" id="toc-des-引擎">3. DES 引擎</a>
+<ul>
+<li><a href="#event" id="toc-event">3.1 Event</a></li>
+<li><a href="#eventkind" id="toc-eventkind">3.2 EventKind</a></li>
+<li><a href="#eventqueue" id="toc-eventqueue">3.3 EventQueue</a></li>
+</ul></li>
+<li><a href="#网络模型" id="toc-网络模型">4. 网络模型</a>
+<ul>
+<li><a href="#packet" id="toc-packet">4.1 Packet</a></li>
+<li><a href="#link" id="toc-link">4.2 Link</a></li>
+<li><a href="#switch" id="toc-switch">4.3 Switch</a></li>
+<li><a href="#链路-serialization" id="toc-链路-serialization">4.4 链路
+serialization</a></li>
+</ul></li>
+<li><a href="#拓扑模型" id="toc-拓扑模型">5. 拓扑模型</a>
+<ul>
+<li><a href="#leaf-spine" id="toc-leaf-spine">5.1 Leaf-Spine</a></li>
+<li><a href="#fat-tree" id="toc-fat-tree">5.2 Fat-Tree</a></li>
+<li><a href="#dumbbell" id="toc-dumbbell">5.3 Dumbbell</a></li>
+</ul></li>
+<li><a href="#协议抽象" id="toc-协议抽象">6. 协议抽象</a>
+<ul>
+<li><a href="#protocol-trait" id="toc-protocol-trait">6.1 Protocol
+trait</a></li>
+<li><a href="#strackprotocol" id="toc-strackprotocol">6.2
+STrackProtocol</a></li>
+<li><a href="#simpletcp" id="toc-simpletcp">6.3 SimpleTcp</a></li>
+</ul></li>
+<li><a href="#simrunner" id="toc-simrunner">7. SimRunner</a>
+<ul>
+<li><a href="#集中式事件分发" id="toc-集中式事件分发">7.1
+集中式事件分发</a></li>
+<li><a href="#packetslab" id="toc-packetslab">7.2 PacketSlab</a></li>
+<li><a href="#事件驱动-txtickrto" id="toc-事件驱动-txtickrto">7.3
+事件驱动 TxTick/RTO</a></li>
+</ul></li>
+<li><a href="#流量与监控" id="toc-流量与监控">8. 流量与监控</a>
+<ul>
+<li><a href="#流量生成" id="toc-流量生成">8.1 流量生成</a></li>
+<li><a href="#指标" id="toc-指标">8.2 指标</a></li>
+<li><a href="#可视化" id="toc-可视化">8.3 可视化</a></li>
+</ul></li>
+<li><a href="#当前测试与性能记录" id="toc-当前测试与性能记录">9.
+当前测试与性能记录</a>
+<ul>
+<li><a href="#测试覆盖" id="toc-测试覆盖">9.1 测试覆盖</a></li>
+<li><a href="#性能-baseline" id="toc-性能-baseline">9.2 性能
+baseline</a></li>
+</ul></li>
+<li><a href="#与大规模模型训练网络相比的主要差距"
+id="toc-与大规模模型训练网络相比的主要差距">10.
+与大规模模型训练网络相比的主要差距</a>
+<ul>
+<li><a href="#训练作业语义不足" id="toc-训练作业语义不足">10.1
+训练作业语义不足</a></li>
+<li><a href="#collective-算法过于简化"
+id="toc-collective-算法过于简化">10.2 Collective 算法过于简化</a></li>
+<li><a href="#gpu主机nic-层次缺失" id="toc-gpu主机nic-层次缺失">10.3
+GPU/主机/NIC 层次缺失</a></li>
+<li><a href="#rdmaroce-细节不足" id="toc-rdmaroce-细节不足">10.4
+RDMA/RoCE 细节不足</a></li>
+<li><a href="#交换机与队列模型过于理想化"
+id="toc-交换机与队列模型过于理想化">10.5
+交换机与队列模型过于理想化</a></li>
+<li><a href="#路由与拓扑部署细节不足"
+id="toc-路由与拓扑部署细节不足">10.6 路由与拓扑部署细节不足</a></li>
+<li><a href="#时间精度与事件规模冲突"
+id="toc-时间精度与事件规模冲突">10.7 时间精度与事件规模冲突</a></li>
+<li><a href="#校准与验证不足" id="toc-校准与验证不足">10.8
+校准与验证不足</a></li>
+<li><a href="#可配置性不足" id="toc-可配置性不足">10.9
+可配置性不足</a></li>
+<li><a href="#可观测性不足" id="toc-可观测性不足">10.10
+可观测性不足</a></li>
+</ul></li>
+<li><a href="#改进路线图" id="toc-改进路线图">11. 改进路线图</a>
+<ul>
+<li><a href="#p0保持当前-correctness-baseline"
+id="toc-p0保持当前-correctness-baseline">P0：保持当前 correctness
+baseline</a></li>
+<li><a href="#p1协议与模拟器可观测性"
+id="toc-p1协议与模拟器可观测性">P1：协议与模拟器可观测性</a></li>
+<li><a href="#p2训练-workload-抽象"
+id="toc-p2训练-workload-抽象">P2：训练 workload 抽象</a></li>
+<li><a href="#p3更真实的协议-baseline"
+id="toc-p3更真实的协议-baseline">P3：更真实的协议 baseline</a></li>
+<li><a href="#p4规模化性能"
+id="toc-p4规模化性能">P4：规模化性能</a></li>
+<li><a href="#p5配置实验和校准"
+id="toc-p5配置实验和校准">P5：配置、实验和校准</a></li>
+<li><a href="#p6并行-des" id="toc-p6并行-des">P6：并行 DES</a></li>
+</ul></li>
+<li><a href="#当前已知技术债" id="toc-当前已知技术债">12.
+当前已知技术债</a></li>
+<li><a href="#参考文件" id="toc-参考文件">13. 参考文件</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="fabric-sim-设计文档">Fabric-Sim 设计文档</h1>
+<blockquote>
+<p>版本：v1.1<br />
+维护：kiwios-cn · 2026-05-23<br />
+定位：面向 AI/ML 集群传输协议研究的通用 packet-level
+离散事件网络模拟器</p>
+</blockquote>
+<hr />
+<h2 id="项目定位">1. 项目定位</h2>
+<p>项目名称仍为 <strong>Fabric-Sim</strong>，但当前代码已经不再是“只模拟
+STrack”的专用原型，而是一个可插拔协议栈的离散事件网络模拟器。</p>
+<p>当前已支持：</p>
+<ul>
+<li>DES 事件引擎：稳定 FIFO 事件排序、纳秒级整数时间。</li>
+<li>网络物理层：单向链路、serialization delay、传播延迟、交换机 FIFO
+队列、ECN、丢包。</li>
+<li>拓扑生成：Leaf-Spine、Fat-Tree、Dumbbell。</li>
+<li>可插拔协议：<code>Protocol</code> trait，内置
+<code>STrackProtocol</code> 和 <code>SimpleTcp</code>。</li>
+<li>流量生成：Incast、AllToAll、Ring
+AllReduce、Permutation、Synthetic、Mix。</li>
+<li>指标采集：FCT、ECN、drop、重传、最大队列、平均链路利用率。</li>
+<li>可视化：链路利用率时间序列采样和 3D 拓扑数据导出。</li>
+</ul>
+<p>因此更准确的工程目标是：</p>
+<blockquote>
+<p>提供一个足够透明、可复现、易扩展的 packet-level DES
+网络模拟器，用于比较多种传输协议在 AI/ML 集群通信模式下的行为。</p>
+</blockquote>
+<p>它目前仍是研究型模拟器，不是生产级网络仿真平台。和真实大规模模型训练网络相比，最主要的差距在于：训练语义、硬件细节、网络模型精度、规模化性能和校准方法仍然简化。</p>
+<hr />
+<h2 id="当前总体架构">2. 当前总体架构</h2>
+<pre class="text"><code>┌─────────────────────────────────────────────────────────────┐
+│                    Traffic Generator                         │
+│  Incast / AllToAll / RingAllReduce / Synthetic / Mix         │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ Vec&lt;FlowDesc&gt;
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                         SimRunner                            │
+│  FlowStart / TxTick / Timeout / PacketArrive / PacketDepart  │
+│  PacketSlab / link_busy_until / sampler / monitor state      │
+└──────────────┬──────────────────────┬───────────────────────┘
+               │                      │
+               ▼                      ▼
+┌─────────────────────────┐   ┌───────────────────────────────┐
+│     Protocol trait       │   │      Topology + Network        │
+│  STrackProtocol/TCP/...  │   │  Link / Switch / RoutingTable  │
+└─────────────────────────┘   └───────────────────────────────┘
+               │                      │
+               └──────────┬───────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                         DES Core                             │
+│           Event / EventKind / EventQueue / Simulator         │
+└─────────────────────────────────────────────────────────────┘</code></pre>
+<p>设计原则：</p>
+<ul>
+<li><code>core/</code> 不依赖网络概念，保持可复用。</li>
+<li><code>network/</code>
+只关心包、链路、交换机和路由，不关心协议语义。</li>
+<li><code>nic/</code> 通过 <code>Protocol</code> trait
+插入具体传输协议。</li>
+<li><code>sim_runner/</code>
+是集中式事件分发器，负责跨模块状态协调。</li>
+<li><code>traffic/</code> 只生成
+<code>FlowDesc</code>，不直接操纵模拟器内部状态。</li>
+<li><code>monitor/</code> 和 <code>viz/</code>
+从仿真状态读取指标，避免影响协议逻辑。</li>
+</ul>
+<hr />
+<h2 id="des-引擎">3. DES 引擎</h2>
+<h3 id="event">3.1 Event</h3>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">struct</span> Event <span class="op">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> time<span class="op">:</span> SimTime<span class="op">,</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> kind<span class="op">:</span> EventKind<span class="op">,</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> target<span class="op">:</span> EntityId<span class="op">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> seq<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p><code>seq</code> 由全局 <code>AtomicU64</code>
+分配，用于同一时间戳事件的 FIFO 稳定性。时间单位统一为纳秒
+<code>u64</code>。</p>
+<h3 id="eventkind">3.2 EventKind</h3>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">enum</span> EventKind <span class="op">{</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    PacketArrive <span class="op">{</span> packet_id<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span> src<span class="op">:</span> EntityId <span class="op">},</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    PacketDepart <span class="op">{</span> packet_id<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span> dst<span class="op">:</span> EntityId<span class="op">,</span> port<span class="op">:</span> <span class="dt">u8</span> <span class="op">},</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    Timeout <span class="op">{</span> timer_id<span class="op">:</span> <span class="dt">u64</span> <span class="op">},</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    Stop<span class="op">,</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    FlowStart <span class="op">{</span> flow_id<span class="op">:</span> <span class="dt">u32</span><span class="op">,</span> src<span class="op">:</span> EntityId<span class="op">,</span> dst<span class="op">:</span> EntityId<span class="op">,</span> bytes<span class="op">:</span> <span class="dt">u64</span> <span class="op">},</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    TxTick <span class="op">{</span> host<span class="op">:</span> EntityId <span class="op">},</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    Custom(<span class="dt">String</span>)<span class="op">,</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p><code>FlowStart</code> 和 <code>TxTick</code>
+已经是结构化事件，不再依赖 <code>Custom(String)</code>
+编码。<code>Custom</code> 仅用于 DES 单元测试、示例和 benchmark。</p>
+<h3 id="eventqueue">3.3 EventQueue</h3>
+<p>当前实现是自定义 <strong>4-ary min-heap</strong>：</p>
+<ul>
+<li>文件：<code>src/core/queue.rs</code></li>
+<li>内部存储：<code>Vec&lt;Event&gt;</code></li>
+<li>比较逻辑：直接比较 <code>(time, seq)</code>，不依赖
+<code>Event::Ord</code></li>
+<li>目标：降低大队列下 heap 高度和 sift 跳转次数</li>
+</ul>
+<p>注意：性能不是单调优于标准库 <code>BinaryHeap</code>。当前
+<code>optimization_compare</code> benchmark 显示：</p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">规模</th>
+<th style="text-align: right;">BinaryHeap</th>
+<th style="text-align: right;">4-ary heap</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">100k events</td>
+<td style="text-align: right;">13.31M elem/s</td>
+<td style="text-align: right;">11.04M elem/s</td>
+<td>4-ary 较慢</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">1M events</td>
+<td style="text-align: right;">5.14M elem/s</td>
+<td style="text-align: right;">6.05M elem/s</td>
+<td>4-ary 较快</td>
+</tr>
+</tbody>
+</table>
+<p>后续如果继续优化事件队列，必须同时保留小队列和大队列两档
+benchmark。</p>
+<hr />
+<h2 id="网络模型">4. 网络模型</h2>
+<h3 id="packet">4.1 Packet</h3>
+<p>当前 <code>Packet</code> 是协议无关的最小公共结构：</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">enum</span> PacketKind <span class="op">{</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    Data<span class="op">,</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    Control(<span class="dt">u8</span>)<span class="op">,</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">struct</span> Packet <span class="op">{</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> id<span class="op">:</span> PacketId<span class="op">,</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> kind<span class="op">:</span> PacketKind<span class="op">,</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> flow_id<span class="op">:</span> FlowId<span class="op">,</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> seq<span class="op">:</span> SeqNum<span class="op">,</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> size<span class="op">:</span> <span class="dt">u32</span><span class="op">,</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> src<span class="op">:</span> EntityId<span class="op">,</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> dst<span class="op">:</span> EntityId<span class="op">,</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> ecn<span class="op">:</span> <span class="dt">bool</span><span class="op">,</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> routing_tag<span class="op">:</span> <span class="dt">u8</span><span class="op">,</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> payload<span class="op">:</span> <span class="dt">Vec</span><span class="op">&lt;</span><span class="dt">u8</span><span class="op">&gt;,</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">pub</span> depart_time<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>协议特定信息不再直接放在 <code>Packet</code> 字段中，而是通过：</p>
+<ul>
+<li><code>kind: Control(u8)</code> 区分 ACK/NACK/自定义控制包。</li>
+<li><code>payload: Vec&lt;u8&gt;</code> 承载 SACK bitmap、base seq
+等协议自定义内容。</li>
+<li><code>routing_tag</code> 表示协议建议的路径/端口，<code>0</code>
+表示交给交换机 ECMP 哈希。</li>
+</ul>
+<p>这比早期 <code>path_hint/sack_base/sack_bits</code> 直接挂在 Packet
+上更适合多协议扩展。</p>
+<h3 id="link">4.2 Link</h3>
+<p>链路是单向的。双向物理链路通过两条反向 <code>Link</code> 表示。</p>
+<p>序列化延迟使用整数运算：</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>(size_bytes <span class="kw">as</span> <span class="dt">u64</span> <span class="op">*</span> <span class="dv">8</span> <span class="op">*</span> <span class="dv">1_000_000_000</span>) <span class="op">/</span> bandwidth_bps</span></code></pre></div>
+<p>这避免浮点误差，但会向下取整。对于极高速、小包场景，后续如果要提高精度，可以考虑
+fixed-point remainder 累积。</p>
+<h3 id="switch">4.3 Switch</h3>
+<p>交换机模型包含：</p>
+<ul>
+<li>多出端口。</li>
+<li>每端口 FIFO <code>VecDeque&lt;Packet&gt;</code>。</li>
+<li>每端口 <code>queue_bytes</code> 和 <code>busy_until</code>。</li>
+<li>ECN threshold。</li>
+<li>buffer 上限丢包。</li>
+<li>目的主机到端口列表的路由表。</li>
+</ul>
+<p>当前 <code>Switch::ingress()</code> 已去掉早期每包
+<code>to_vec()</code> 的临时分配，通过内部 block 计算
+<code>chosen: PortId</code> 后再可变访问端口。</p>
+<h3 id="链路-serialization">4.4 链路 serialization</h3>
+<p><code>SimRunner</code> 用
+<code>link_busy_until: Vec&lt;u64&gt;</code> 建模链路串行化：</p>
+<pre class="text"><code>send_start = max(now, link_busy_until[link_id])
+send_done  = send_start + serialization_ns(size)
+arrive     = send_done + propagation_delay</code></pre>
+<p>这保证同一条单向链路同一时间只能发送一个包。</p>
+<hr />
+<h2 id="拓扑模型">5. 拓扑模型</h2>
+<h3 id="leaf-spine">5.1 Leaf-Spine</h3>
+<p>两层 Leaf-Spine：</p>
+<ul>
+<li>hosts 从 <code>0</code> 开始连续编号。</li>
+<li>leaf switch 接在 host id 后。</li>
+<li>spine switch 接在 leaf id 后。</li>
+<li>每个 leaf 和每个 spine 全互联。</li>
+<li>leaf 到远端 leaf 下 host 有多条等价路径。</li>
+</ul>
+<p>适合模拟 AI 集群中常见的二层 CLOS/fabric 简化形态。</p>
+<h3 id="fat-tree">5.2 Fat-Tree</h3>
+<p><code>k</code>-ary 三层 Fat-Tree：</p>
+<ul>
+<li>hosts 数量为 <code>k^3 / 4</code>。</li>
+<li>包含 edge、aggregation、core 三层交换机。</li>
+<li>路由表在生成时完整填充。</li>
+</ul>
+<p>当前只支持确定性拓扑生成，不包含 oversubscription
+profile、故障域、机架/Pod 物理布局等真实部署属性。</p>
+<h3 id="dumbbell">5.3 Dumbbell</h3>
+<p>Dumbbell 拓扑用于构造明确瓶颈链路，适合验证：</p>
+<ul>
+<li>队列堆积。</li>
+<li>ECN 标记。</li>
+<li>丢包。</li>
+<li>重传。</li>
+<li>TCP/STrack 在单瓶颈下的差异。</li>
+</ul>
+<hr />
+<h2 id="协议抽象">6. 协议抽象</h2>
+<h3 id="protocol-trait">6.1 Protocol trait</h3>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">pub</span> <span class="kw">trait</span> Protocol <span class="op">{</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> start_flow(<span class="op">&amp;</span><span class="kw">mut</span> <span class="kw">self</span><span class="op">,</span> flow_id<span class="op">:</span> FlowId<span class="op">,</span> dst<span class="op">:</span> EntityId<span class="op">,</span> total_bytes<span class="op">:</span> <span class="dt">u64</span><span class="op">,</span> now<span class="op">:</span> <span class="dt">u64</span>)<span class="op">;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> on_tx_tick(<span class="op">&amp;</span><span class="kw">mut</span> <span class="kw">self</span><span class="op">,</span> now<span class="op">:</span> <span class="dt">u64</span>) <span class="op">-&gt;</span> <span class="dt">Vec</span><span class="op">&lt;</span>Packet<span class="op">&gt;;</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> on_rx_data(<span class="op">&amp;</span><span class="kw">mut</span> <span class="kw">self</span><span class="op">,</span> pkt<span class="op">:</span> <span class="op">&amp;</span>Packet<span class="op">,</span> now<span class="op">:</span> <span class="dt">u64</span>) <span class="op">-&gt;</span> <span class="dt">Vec</span><span class="op">&lt;</span>Packet<span class="op">&gt;;</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> on_tx_control(<span class="op">&amp;</span><span class="kw">mut</span> <span class="kw">self</span><span class="op">,</span> pkt<span class="op">:</span> <span class="op">&amp;</span>Packet<span class="op">,</span> now<span class="op">:</span> <span class="dt">u64</span>)<span class="op">;</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> all_flows_done(<span class="op">&amp;</span><span class="kw">self</span>) <span class="op">-&gt;</span> <span class="dt">bool</span><span class="op">;</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> take_finished_flows(<span class="op">&amp;</span><span class="kw">mut</span> <span class="kw">self</span>) <span class="op">-&gt;</span> <span class="dt">Vec</span><span class="op">&lt;</span>(FlowId<span class="op">,</span> <span class="dt">u64</span>)<span class="op">&gt;;</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> stats(<span class="op">&amp;</span><span class="kw">self</span>) <span class="op">-&gt;</span> ProtocolStats<span class="op">;</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> has_pending_work(<span class="op">&amp;</span><span class="kw">self</span>) <span class="op">-&gt;</span> <span class="dt">bool</span><span class="op">;</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">fn</span> next_rto_deadline(<span class="op">&amp;</span><span class="kw">self</span>) <span class="op">-&gt;</span> <span class="dt">Option</span><span class="op">&lt;</span><span class="dt">u64</span><span class="op">&gt;;</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p><code>has_pending_work()</code> 和 <code>next_rto_deadline()</code>
+是当前性能优化的关键：SimRunner 不再固定轮询所有活跃
+host，而是由协议栈告知是否需要继续 TxTick 或等待 RTO。</p>
+<h3 id="strackprotocol">6.2 STrackProtocol</h3>
+<p>当前 STrack 实现支持两种模式：</p>
+<ul>
+<li><code>Ecmp</code>：单路径哈希基线，遇 ECN 直接降窗。</li>
+<li><code>Strack</code>：多路径 spraying，遇 ECN
+优先黑名单路径，全部路径不可用时再降窗。</li>
+</ul>
+<p>主要状态：</p>
+<ul>
+<li><code>tx_flows: HashMap&lt;FlowId, FlowTxState&gt;</code></li>
+<li><code>rx_flows: HashMap&lt;FlowId, FlowRxState&gt;</code></li>
+<li><code>paths: Vec&lt;PathState&gt;</code></li>
+<li><code>retransmit_queue</code></li>
+<li><code>send_times</code></li>
+<li><code>finished</code></li>
+</ul>
+<p>简化点：</p>
+<ul>
+<li>cwnd 是包数，不是 byte/window rate。</li>
+<li>ECN 响应是简化 AIMD。</li>
+<li>SACK bitmap 通过控制包 payload 编码。</li>
+<li>路径质量评估仍然很粗糙。</li>
+</ul>
+<p>重要风险：</p>
+<ul>
+<li>当前 ECN 路径归因仍需继续加强。理想实现应记录
+<code>seq -&gt; path/routing_tag</code>，ACK 携带或能反查原 data
+包路径，否则黑名单路径可能不是实际拥塞路径。</li>
+</ul>
+<h3 id="simpletcp">6.3 SimpleTcp</h3>
+<p><code>SimpleTcp</code> 用于验证 <code>Protocol</code> trait
+的通用性，并提供非 STrack baseline：</p>
+<ul>
+<li>单路径。</li>
+<li>累计 ACK。</li>
+<li>简化乱序缓存。</li>
+<li>慢启动。</li>
+<li>拥塞避免。</li>
+<li>3 duplicate ACK 快速重传。</li>
+<li>RTO 超时重传。</li>
+</ul>
+<p>它不是完整 Linux TCP，也不是 RoCE/DCQCN
+的真实替代，只适合作为行为基线。</p>
+<hr />
+<h2 id="simrunner">7. SimRunner</h2>
+<h3 id="集中式事件分发">7.1 集中式事件分发</h3>
+<p>当前仍采用集中式分发，而不是
+<code>Simulator::register_handler</code>：</p>
+<pre class="text"><code>FlowStart      -&gt; Protocol::start_flow + TxTick
+TxTick         -&gt; Protocol::on_tx_tick + host uplink injection
+PacketArrive   -&gt; host receive 或 switch ingress
+PacketDepart   -&gt; switch egress retry/dequeue
+Timeout        -&gt; TxTick，触发协议检查 RTO
+Stop           -&gt; stop</code></pre>
+<p>这样可以在单个事件处理中同时读写协议、拓扑、链路 busy 状态、packet
+buffer 和监控状态。</p>
+<h3 id="packetslab">7.2 PacketSlab</h3>
+<p>早期版本使用 <code>HashMap&lt;u64, Packet&gt;</code>；当前使用轻量
+slab：</p>
+<pre class="text"><code>PacketSlab {
+    slots: Vec&lt;Option&lt;Packet&gt;&gt;,
+    free: Vec&lt;u64&gt;,
+}</code></pre>
+<p>优点：</p>
+<ul>
+<li><code>insert/remove</code> 都是数组索引访问。</li>
+<li>避免 HashMap 哈希和桶访问。</li>
+<li>内存布局更连续。</li>
+</ul>
+<p>代价：</p>
+<ul>
+<li><code>Packet.id</code> 不再全局单调，而是可复用 slab index。</li>
+<li>调试逐包路径时需要额外 trace id，不能再依赖 packet id
+表示生命周期唯一性。</li>
+</ul>
+<p>当前 benchmark 显示：</p>
+<table>
+<thead>
+<tr class="header">
+<th style="text-align: right;">规模</th>
+<th style="text-align: right;">HashMap</th>
+<th style="text-align: right;">Slab</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">100k packets</td>
+<td style="text-align: right;">63.15M elem/s</td>
+<td style="text-align: right;">264.49M elem/s</td>
+<td>Slab 快约 4.2x</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">1M packets</td>
+<td style="text-align: right;">24.19M elem/s</td>
+<td style="text-align: right;">178.55M elem/s</td>
+<td>Slab 快约 7.4x</td>
+</tr>
+</tbody>
+</table>
+<h3 id="事件驱动-txtickrto">7.3 事件驱动 TxTick/RTO</h3>
+<p>早期版本：</p>
+<ul>
+<li>发包后固定调度 <code>TxTick @ now + tx_tick_ns</code>。</li>
+<li>空转但活跃时调度 <code>TxTick @ now + 25us</code>。</li>
+<li>ACK/NACK 到达后调度 <code>TxTick @ now</code>。</li>
+<li>RTO 依赖 TxTick 采样。</li>
+</ul>
+<p>当前版本：</p>
+<ul>
+<li>有待发送工作时才调度下一次 TxTick。</li>
+<li>无待发送工作但存在未确认包时，调度最早 RTO
+<code>Timeout</code>。</li>
+<li><code>Timeout</code> 到期后触发一次 TxTick，由协议检查重传。</li>
+<li>RTO 边界条件使用 <code>&gt;=</code>，避免
+<code>Timeout @ deadline</code>
+到期但协议不认为超时，造成零时间事件循环。</li>
+</ul>
+<hr />
+<h2 id="流量与监控">8. 流量与监控</h2>
+<h3 id="流量生成">8.1 流量生成</h3>
+<p>当前 <code>traffic/</code> 提供：</p>
+<table>
+<thead>
+<tr class="header">
+<th>模式</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>Incast</code></td>
+<td>N-to-1 同步突发</td>
+</tr>
+<tr class="even">
+<td><code>AllToAll</code></td>
+<td>全员两两交换</td>
+</tr>
+<tr class="odd">
+<td><code>RingAllReduce</code></td>
+<td>简化集合通信</td>
+</tr>
+<tr class="even">
+<td><code>Permutation</code></td>
+<td>无热点排列流量</td>
+</tr>
+<tr class="odd">
+<td><code>Synthetic</code></td>
+<td>分布 × 到达过程 × 通信对组合</td>
+</tr>
+<tr class="even">
+<td><code>Mix</code></td>
+<td>多组件混合 workload</td>
+</tr>
+</tbody>
+</table>
+<p><code>Synthetic</code> 是后续推荐扩展入口：</p>
+<ul>
+<li><code>FlowSizeDist</code>: Fixed / Uniform / Pareto / Bimodal</li>
+<li><code>ArrivalProcess</code>: Simultaneous / FixedInterval /
+Poisson</li>
+<li><code>PairPattern</code>: AllToAll / Permutation / RandomPairs /
+Custom</li>
+</ul>
+<h3 id="指标">8.2 指标</h3>
+<p><code>SimSummary</code> 当前包含：</p>
+<ul>
+<li>总流数、完成流数。</li>
+<li>总仿真时间。</li>
+<li>总发送包数、总重传包数。</li>
+<li>ECN 标记数、丢包数。</li>
+<li>FCT P50/P95/P99/Max。</li>
+<li>平均链路利用率。</li>
+<li>最大队列深度。</li>
+</ul>
+<h3 id="可视化">8.3 可视化</h3>
+<p><code>viz/</code> 支持：</p>
+<ul>
+<li><code>TimeSeriesSampler</code> 周期采样链路利用率和队列深度。</li>
+<li><code>VizData/VizNode/VizLink/VizFrame</code> JSON 导出。</li>
+<li><code>scripts/visualize_3d.py</code> 用 Plotly 渲染 3D
+拓扑动画。</li>
+</ul>
+<hr />
+<h2 id="当前测试与性能记录">9. 当前测试与性能记录</h2>
+<h3 id="测试覆盖">9.1 测试覆盖</h3>
+<p>当前 <code>cargo test --release</code> 覆盖：</p>
+<table>
+<thead>
+<tr class="header">
+<th>类型</th>
+<th style="text-align: right;">数量</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>单元测试</td>
+<td style="text-align: right;">48</td>
+<td>core/network/nic/topology/traffic</td>
+</tr>
+<tr class="even">
+<td>集成/矩阵测试</td>
+<td style="text-align: right;">17</td>
+<td>DES、Dumbbell、E2E、workload matrix</td>
+</tr>
+<tr class="odd">
+<td>文档测试</td>
+<td style="text-align: right;">1</td>
+<td>crate-level 示例</td>
+</tr>
+<tr class="even">
+<td>合计</td>
+<td style="text-align: right;">66</td>
+<td>当前全部通过</td>
+</tr>
+</tbody>
+</table>
+<p>测试必须优先使用 <code>--release</code>，因为 DES 事件吞吐在 debug
+模式下不足以代表真实运行。</p>
+<h3 id="性能-baseline">9.2 性能 baseline</h3>
+<p>性能 baseline 已记录在：</p>
+<ul>
+<li><code>logs/perf_baseline_2026-05-23.md</code></li>
+<li><code>benches/optimization_compare.rs</code></li>
+</ul>
+<p>端到端 sanity check：</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> run <span class="at">--release</span> <span class="at">--example</span> incast_compare</span></code></pre></div>
+<p>当前结果示例：</p>
+<ul>
+<li>ECMP baseline：15/15 流完成，约 <code>120706</code> events，墙钟约
+<code>27.95ms</code>。</li>
+<li>STrack：15/15 流完成，约 <code>127959</code> events，墙钟约
+<code>21.36ms</code>。</li>
+</ul>
+<p>端到端墙钟受系统负载影响明显；后续优化应优先使用 Criterion benchmark
+比较热路径。</p>
+<hr />
+<h2 id="与大规模模型训练网络相比的主要差距">10.
+与大规模模型训练网络相比的主要差距</h2>
+<p>这一节是后续改进的核心。当前项目适合研究传输协议局部行为，但距离“可信模拟大规模模型训练网络”还有明显差距。</p>
+<h3 id="训练作业语义不足">10.1 训练作业语义不足</h3>
+<p>真实训练网络不是独立 flow 集合，而是由训练迭代驱动：</p>
+<ul>
+<li>forward。</li>
+<li>backward。</li>
+<li>gradient all-reduce / reduce-scatter / all-gather。</li>
+<li>optimizer step。</li>
+<li>pipeline bubble。</li>
+<li>tensor/model/data/expert parallel 的组合。</li>
+</ul>
+<p>当前模型已经有 <code>TrainingJob</code> / <code>Iteration</code> /
+<code>CollectiveOp</code>，并能静态展开为
+<code>FlowDesc { src, dst, bytes, start_time }</code>。P2
+后的能力包括：</p>
+<ul>
+<li>iteration 结构。</li>
+<li>collective 顺序计划。</li>
+<li><code>compute_delay_ns</code> 对 iteration 起点的推进。</li>
+<li>Ring / ReduceScatter+AllGather / Tree 的计划展开。</li>
+<li>collective completion time 与 iteration time 指标。</li>
+</ul>
+<p>仍然缺少：</p>
+<ul>
+<li>compute 与 communication overlap。</li>
+<li>运行时 collective operation DAG。</li>
+<li>barrier 和依赖关系。</li>
+<li>多 job 共存和调度。</li>
+<li>rank placement 对通信矩阵的影响。</li>
+</ul>
+<p>改进建议：</p>
+<ol type="1">
+<li>增加 <code>workload/training.rs</code> 或 <code>job/</code>
+模块。</li>
+<li>定义
+<code>TrainingJob</code>、<code>Iteration</code>、<code>CollectiveOp</code>、<code>TensorShard</code>。</li>
+<li>支持
+<code>AllReduce</code>、<code>ReduceScatter</code>、<code>AllGather</code>、<code>AllToAll</code>、MoE
+dispatch/combine。</li>
+<li>指标从单流 FCT 扩展到 iteration time、collective completion
+time、step time、job throughput。</li>
+</ol>
+<h3 id="collective-算法过于简化">10.2 Collective 算法过于简化</h3>
+<p>当前 <code>RingAllReduce</code> 是简化环形模式。真实训练中常见：</p>
+<ul>
+<li>Ring AllReduce。</li>
+<li>Tree / Double Binary Tree。</li>
+<li>Hierarchical AllReduce。</li>
+<li>ReduceScatter + AllGather。</li>
+<li>多 rail / 多 NIC 分片。</li>
+<li>NCCL channel 并行。</li>
+<li>topology-aware collective。</li>
+</ul>
+<p>当前已有：</p>
+<ul>
+<li><code>ChunkConfig { chunk_size_bytes, num_channels, pipeline_depth }</code>。</li>
+<li>显式 chunking：一个逻辑 edge 可拆成多条 flow。</li>
+<li>channel 并行：同一 wave 中可同时启动多个 chunk。</li>
+<li>pipeline overlap：step 间隔按 pipeline depth
+压缩，用于近似流水重叠。</li>
+</ul>
+<p>当前缺口：</p>
+<ul>
+<li>没有 intra-node NVLink/NVSwitch 与 inter-node fabric
+的两级通信。</li>
+<li>没有 rank 到 host/GPU/NIC 的映射。</li>
+</ul>
+<p>改进建议：</p>
+<ol type="1">
+<li>把 <code>RingAllReduce</code> 从“流量模式”提升为
+<code>CollectiveAlgorithm</code>。</li>
+<li>增加
+<code>chunk_size</code>、<code>num_channels</code>、<code>rail_count</code>。</li>
+<li>明确 <code>rank -&gt; gpu -&gt; host -&gt; nic -&gt; leaf</code>
+映射。</li>
+<li>输出 collective-level 指标，而不仅是 flow FCT。</li>
+</ol>
+<h3 id="gpu主机nic-层次缺失">10.3 GPU/主机/NIC 层次缺失</h3>
+<p>真实节点通常不是“一个 host 一个 NIC
+一个协议栈”这么简单。一个训练节点可能包含：</p>
+<ul>
+<li>多 GPU。</li>
+<li>NVLink/NVSwitch。</li>
+<li>多 NIC。</li>
+<li>PCIe switch。</li>
+<li>NUMA。</li>
+<li>GPUDirect RDMA。</li>
+<li>多 QP / 多 traffic class。</li>
+</ul>
+<p>当前模型：</p>
+<ul>
+<li>host 是最小通信实体。</li>
+<li>host 只有一个 uplink。</li>
+<li>NIC 操作零延迟。</li>
+<li>不区分 GPU 内存、CPU 内存、DMA、PCIe。</li>
+</ul>
+<p>改进建议：</p>
+<ol type="1">
+<li>增加 node
+内部拓扑：<code>GpuId</code>、<code>NicId</code>、<code>HostId</code>。</li>
+<li>支持 host 多 uplink / 多 rail。</li>
+<li>增加 NIC serialization queue、DMA delay、PCIe/NVLink 带宽限制。</li>
+<li>支持 intra-node collective 和 inter-node collective 的组合。</li>
+</ol>
+<h3 id="rdmaroce-细节不足">10.4 RDMA/RoCE 细节不足</h3>
+<p>当前协议模型已经从“packet + cwnd + ACK/NACK”的简化传输层扩展出 RDMA
+原型： <code>src/nic/rdma.rs</code> 提供 QP/PSN/WQE/CQE
+等结构，<code>src/nic/rdma_protocol.rs</code> 提供
+<code>RdmaProtocol</code>，并已有 RDMA Write
+的最小端到端测试。但它仍然不是成熟 RoCE/RDMA 模拟器。真实 RoCE/RDMA
+还涉及：</p>
+<ul>
+<li>QP。</li>
+<li>PSN。</li>
+<li>WQE/CQE。</li>
+<li>message segmentation。</li>
+<li>selective repeat。</li>
+<li>RNR。</li>
+<li>CNP。</li>
+<li>DCQCN rate control。</li>
+<li>PFC/ECN 协同。</li>
+<li>priority / traffic class。</li>
+<li>lossless fabric 的 head-of-line blocking。</li>
+</ul>
+<p>当前缺口：</p>
+<ul>
+<li>QP 状态机已有结构，但连接生命周期、错误恢复、PSN 回绕未校准。</li>
+<li>RDMA Write 已能端到端完成；RDMA Send + posted recv
+尚未端到端验证。</li>
+<li>RNR NAK/退避有单元测试，但 RNR 后恢复发送未形成端到端闭环。</li>
+<li>DCQCN/CNP/rate-based pacing 有简化实现，但参数和恢复曲线未与真实
+RoCEv2 校准。</li>
+<li>PFC/priority/shared-buffer 已有结构或计数器，但不是完整 pause frame
+与上游反压模型。</li>
+</ul>
+<p>改进建议：</p>
+<ol type="1">
+<li>补 RDMA Send + posted recv 端到端测试。</li>
+<li>补 RNR NAK → backoff → 恢复发送的端到端或半端到端测试。</li>
+<li>将 PFC 从本地 paused 标志推进到 pause/resume frame 与上游反压。</li>
+<li>清理 <code>RdmaProtocol</code> 的 public/private API 边界，并校准
+DCQCN 参数。</li>
+</ol>
+<h3 id="交换机与队列模型过于理想化">10.5 交换机与队列模型过于理想化</h3>
+<p>当前 switch 模型：</p>
+<ul>
+<li>每端口一个 FIFO。</li>
+<li>单一 ECN threshold。</li>
+<li>单一 buffer max。</li>
+<li>路由查表零延迟。</li>
+<li>无共享 buffer。</li>
+<li>无 VOQ。</li>
+<li>无 priority queue。</li>
+<li>无 packet scheduling policy。</li>
+</ul>
+<p>真实训练网络可能需要模拟：</p>
+<ul>
+<li>shared buffer。</li>
+<li>dynamic threshold。</li>
+<li>ECN marking profile。</li>
+<li>PFC。</li>
+<li>多优先级。</li>
+<li>WRR/SP/WFQ。</li>
+<li>cut-through vs store-and-forward。</li>
+<li>packet/cell switching。</li>
+<li>ECMP group、flowlet、adaptive routing。</li>
+<li>链路故障和收敛。</li>
+</ul>
+<p>改进建议：</p>
+<ol type="1">
+<li>把 <code>SwitchPort.queue</code> 抽象为 trait 或 enum：FIFO /
+Priority / SharedBuffer。</li>
+<li>增加 <code>QueueDiscipline</code> 和 <code>BufferModel</code>。</li>
+<li>增加 switch pipeline delay。</li>
+<li>增加 adaptive routing policy。</li>
+</ol>
+<h3 id="路由与拓扑部署细节不足">10.6 路由与拓扑部署细节不足</h3>
+<p>当前拓扑是干净的理论拓扑。真实集群还包含：</p>
+<ul>
+<li>oversubscription。</li>
+<li>rail-optimized design。</li>
+<li>multi-plane fabric。</li>
+<li>rack/pod/failure domain。</li>
+<li>host placement。</li>
+<li>asymmetric link speed。</li>
+<li>failed/degraded links。</li>
+<li>ECMP seed 和 hash field。</li>
+</ul>
+<p>当前缺口：</p>
+<ul>
+<li>没有多 rail 拓扑。</li>
+<li>没有 placement 策略。</li>
+<li>没有 link failure。</li>
+<li>ECMP hash 简化为 <code>src ^ dst ^ flow_id</code>。</li>
+</ul>
+<p>改进建议：</p>
+<ol type="1">
+<li>增加 topology 配置文件，支持不同 link speed 和
+oversubscription。</li>
+<li>增加 rank placement
+策略：compact/spread/random/topology-aware。</li>
+<li>增加 failure injection。</li>
+<li>支持 flowlet/adaptive routing。</li>
+</ol>
+<h3 id="时间精度与事件规模冲突">10.7 时间精度与事件规模冲突</h3>
+<p>packet-level DES 的最大问题是事件数量。</p>
+<p>在 100Gbps、1KB MTU 下，一条链路每约 82ns 可发送一个包。若模拟 1K-10K
+节点、AllToAll 或 MoE all-to-all，事件数会快速爆炸。</p>
+<p>当前已做优化：</p>
+<ul>
+<li>事件驱动 TxTick/RTO。</li>
+<li>PacketSlab。</li>
+<li>4-ary heap。</li>
+<li>去掉 switch ingress 临时分配。</li>
+</ul>
+<p>但结构性限制仍在：</p>
+<ul>
+<li>单线程全局事件队列。</li>
+<li>每包至少多个事件。</li>
+<li>每包进入 packet buffer。</li>
+<li>每 ACK/NACK 也作为包模拟。</li>
+</ul>
+<p>改进方向：</p>
+<ol type="1">
+<li>增加 flow-level 或 hybrid 模式：大 elephant flow 用 fluid/analytic
+model，小 flow 用 packet-level。</li>
+<li>增加 packet coalescing：多个同质 packet 合并成 batch event。</li>
+<li>增加 per-link calendar queue / timing wheel，减少全局 heap
+压力。</li>
+<li>增加 parallel DES：按 topology partition 为 logical process。</li>
+<li>增加 deterministic fast path：对无拥塞链路直接计算
+arrival，不逐包入队。</li>
+</ol>
+<h3 id="校准与验证不足">10.8 校准与验证不足</h3>
+<p>当前验证主要是内部一致性测试：</p>
+<ul>
+<li>是否完成。</li>
+<li>是否触发 ECN/drop。</li>
+<li>FCT 是否非零。</li>
+<li>DES 排序是否正确。</li>
+</ul>
+<p>但要可信模拟真实训练网络，需要外部校准：</p>
+<ul>
+<li>与真实集群 telemetry 对比。</li>
+<li>与 ns-3 / htsim / OMNeT++ / Astra-sim 类工具对比。</li>
+<li>与已知论文场景复现。</li>
+<li>对不同 MTU、RTT、带宽、buffer、ECN threshold 做 sensitivity
+analysis。</li>
+</ul>
+<p>改进建议：</p>
+<ol type="1">
+<li>增加 <code>experiments/</code> 目录保存固定场景配置和结果。</li>
+<li>增加 CSV/JSON trace 导出。</li>
+<li>增加 notebook 或 Python 脚本做图。</li>
+<li>增加基准场景：single bottleneck、incast、all-to-all、ring
+allreduce、reduce-scatter/allgather。</li>
+</ol>
+<h3 id="可配置性不足">10.9 可配置性不足</h3>
+<p>当前很多参数仍硬编码在 examples/tests 中：</p>
+<ul>
+<li>拓扑规模。</li>
+<li>link bandwidth。</li>
+<li>ECN threshold。</li>
+<li>buffer。</li>
+<li>flow size。</li>
+<li>protocol mode。</li>
+<li>simulation end time。</li>
+</ul>
+<p>改进建议：</p>
+<ol type="1">
+<li>接入 <code>clap</code>。</li>
+<li>增加 TOML/JSON scenario 配置。</li>
+<li>支持命令行选择 topology/protocol/workload/output。</li>
+<li>把结果统一输出到 <code>output/</code>，日志输出到
+<code>logs/</code>。</li>
+</ol>
+<h3 id="可观测性不足">10.10 可观测性不足</h3>
+<p>当前 summary 适合快速比较，但不足以定位大规模性能/协议问题。</p>
+<p>需要增加：</p>
+<ul>
+<li>per-flow timeline。</li>
+<li>per-link utilization timeseries。</li>
+<li>per-queue occupancy timeseries。</li>
+<li>packet drop reason。</li>
+<li>retransmission cause。</li>
+<li>ECN mark location。</li>
+<li>control packet statistics。</li>
+<li>event type histogram。</li>
+<li>simulator wall-clock profiling。</li>
+</ul>
+<p>尤其是事件驱动优化后，必须能快速发现：</p>
+<ul>
+<li>同一时间戳事件风暴。</li>
+<li>RTO 反复调度。</li>
+<li>某 host/pair 产生异常多事件。</li>
+<li>某端口队列长期不出队。</li>
+</ul>
+<hr />
+<h2 id="改进路线图">11. 改进路线图</h2>
+<h3 id="p0保持当前-correctness-baseline">P0：保持当前 correctness
+baseline</h3>
+<ul class="task-list">
+<li><label><input type="checkbox"
+checked="" /><code>cargo test --release</code> 全部通过。</label></li>
+<li><label><input type="checkbox" checked="" />RTO exact-deadline
+回归测试。</label></li>
+<li><label><input type="checkbox"
+checked="" /><code>incast_compare</code> 不再卡住。</label></li>
+<li><label><input type="checkbox"
+checked="" /><code>logs/perf_baseline_2026-05-23.md</code> 记录性能
+baseline。</label></li>
+</ul>
+<h3 id="p1协议与模拟器可观测性">P1：协议与模拟器可观测性</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />增加 event type
+histogram。</label></li>
+<li><label><input type="checkbox" checked="" />增加
+<code>run_with_progress()</code> 或 profiling mode。</label></li>
+<li><label><input type="checkbox" checked="" />输出每类事件数量、最大
+pending queue 长度、同时间戳连续事件数量。</label></li>
+<li><label><input type="checkbox" checked="" />packet trace 使用独立
+<code>trace_id</code>，不要依赖 slab
+<code>packet.id</code>。</label></li>
+</ul>
+<h3 id="p2训练-workload-抽象">P2：训练 workload 抽象</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />增加
+<code>TrainingJob</code> / <code>CollectiveOp</code>。</label></li>
+<li><label><input type="checkbox" checked="" />支持 reduce-scatter +
+all-gather。</label></li>
+<li><label><input type="checkbox" checked="" />支持
+chunk/channel/pipeline。</label></li>
+<li><label><input type="checkbox" checked="" />输出 iteration time /
+collective completion time。</label></li>
+</ul>
+<h3 id="p3更真实的协议-baseline">P3：更真实的协议 baseline</h3>
+<ul>
+<li><label><input type="checkbox" checked="" />完整 DCQCN
+baseline。</label></li>
+<li><label><input type="checkbox" checked="" />HPCC/Swift
+类协议占位或简化实现。</label></li>
+<li>[~] PFC/CNP/priority queue：已有简化原型，硬件级语义未成熟。</li>
+<li>[~] 多 QP / 多 NIC：QP 结构和 multi-rail
+拓扑原型已存在，尚未完整接入主仿真语义。</li>
+</ul>
+<h3 id="p4规模化性能">P4：规模化性能</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />继续评估 4-ary
+heap；如小队列退化明显，考虑混合策略或回退。</label></li>
+<li><label><input type="checkbox" />减少 <code>Vec&lt;Packet&gt;</code>
+返回分配：smallvec、callback sink 或 packet builder。</label></li>
+<li><label><input type="checkbox" /><code>next_rto_deadline()</code>
+维护 per-protocol min-heap，避免每次遍历所有 send_times。</label></li>
+<li><label><input type="checkbox" />批量 packet/event。</label></li>
+<li><label><input type="checkbox" />flow-level/hybrid
+模式。</label></li>
+</ul>
+<h3 id="p5配置实验和校准">P5：配置、实验和校准</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />CLI + scenario
+配置文件。</label></li>
+<li><label><input type="checkbox" />固定 experiments 目录。</label></li>
+<li><label><input type="checkbox" />输出 CSV/JSON trace。</label></li>
+<li><label><input type="checkbox" />与外部工具或真实 telemetry
+做校准。</label></li>
+</ul>
+<h3 id="p6并行-des">P6：并行 DES</h3>
+<ul class="task-list">
+<li><label><input type="checkbox" />拓扑 partition。</label></li>
+<li><label><input type="checkbox" />Logical Process 抽象。</label></li>
+<li><label><input type="checkbox" />保守同步或 lookahead。</label></li>
+<li><label><input type="checkbox" />明确跨 partition link event
+语义。</label></li>
+</ul>
+<p>并行 DES 是大工程，不建议在训练
+workload、可观测性和校准之前启动。</p>
+<hr />
+<h2 id="当前已知技术债">12. 当前已知技术债</h2>
+<ol type="1">
+<li><code>Packet.id</code> 现在是 slab index，可复用；如果要做逐包
+trace，需要新增稳定 <code>trace_id</code>。</li>
+<li><code>summarize()</code> 仍用 <code>start_ns &gt; 0</code> 过滤
+flow，0ns 起始流会被忽略；应改成 <code>Option&lt;FlowFct&gt;</code>
+或显式有效标志。</li>
+<li><code>STrackProtocol</code> 的 ECN 路径归因需要用
+<code>seq -&gt; path</code> 或 ACK payload 明确绑定。</li>
+<li><code>Protocol::on_tx_tick()</code> 和 <code>on_rx_data()</code>
+返回
+<code>Vec&lt;Packet&gt;</code>，高频小包/控制包场景会产生分配压力。</li>
+<li><code>next_rto_deadline()</code> 每次遍历所有
+<code>send_times</code>，大规模流数下会成为热点。</li>
+<li><code>Protocol</code> 仍是
+<code>Box&lt;dyn Protocol&gt;</code>，保留了 vtable 开销；后续可评估
+<code>SimRunner&lt;P&gt;</code> 泛型化。</li>
+<li><code>FlowFct</code> 当前只适合独立 flow，不适合
+coflow/collective/job-level 指标。</li>
+<li>当前拓扑缺少多 rail、多 NIC、oversubscription、failure domain。</li>
+</ol>
+<hr />
+<h2 id="参考文件">13. 参考文件</h2>
+<ul>
+<li><code>src/core/queue.rs</code>：4-ary event queue。</li>
+<li><code>src/core/event.rs</code>：Event / EventKind。</li>
+<li><code>src/sim_runner/mod.rs</code>：SimRunner、PacketSlab、主分发。</li>
+<li><code>src/sim_runner/host.rs</code>：TxTick/RTO、host 收发。</li>
+<li><code>src/sim_runner/switch.rs</code>：switch ingress/egress。</li>
+<li><code>src/network/switch.rs</code>：FIFO
+queue、ECN/drop、routing。</li>
+<li><code>src/nic/protocol.rs</code>：可插拔协议接口。</li>
+<li><code>src/nic/strack.rs</code>：STrack/Ecmp 实现。</li>
+<li><code>src/nic/tcp.rs</code>：SimpleTcp 实现。</li>
+<li><code>src/traffic/synthetic.rs</code>：推荐的通用 workload
+入口。</li>
+<li><code>src/viz/</code>：可视化数据采样。</li>
+<li><code>docs/limit.md</code>：大规模性能瓶颈分析。</li>
+<li><code>logs/perf_baseline_2026-05-23.md</code>：当前性能
+baseline。</li>
+</ul>
+
+</div>
+</body>
+</html>

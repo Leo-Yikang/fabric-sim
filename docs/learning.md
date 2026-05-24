@@ -1,6 +1,6 @@
 # Fabric-Sim 协议学习指南
 
-> 本文档面向希望理解 Fabric-Sim 中六种传输协议（TCP、ECMP、Fabric、DCQCN、HPCC、Swift）核心原理的读者。
+> 本文档面向希望理解 Fabric-Sim 中六种传输协议（TCP、ECMP、STrack、DCQCN、HPCC、Swift）核心原理的读者。
 > 撰写风格力求像教材一样系统、清晰，必要时给出伪代码和数学公式。
 
 ---
@@ -10,7 +10,7 @@
 1. [概述：数据中心传输协议的演进](#1-概述数据中心传输协议的演进)
 2. [TCP（SimpleTcp）：经典拥塞控制的基石](#2-tcpsimpletcp经典拥塞控制的基石)
 3. [ECMP：网络层的负载均衡](#3-ecmp网络层的负载均衡)
-4. [Fabric：多路径 RDMA 与选择性重传](#4-strack多路径-rdma-与选择性重传)
+4. [STrack：多路径 RDMA 与选择性重传](#4-strack多路径-rdma-与选择性重传)
 5. [DCQCN：基于速率的量化拥塞控制](#5-dcqcn基于速率的量化拥塞控制)
 6. [HPCC：高精度拥塞控制](#6-hpcc高精度拥塞控制)
 7. [Swift：基于 RTT 的轻量传输](#7-swift基于-rtt-的轻量传输)
@@ -48,7 +48,7 @@
 ├─────────────────────────────────────────────────────────────┤
 │  TCP (SimpleTcp)  窗口-based    慢启动+AIMD         1980s    │
 │  ECMP             网络层        流哈希选路          1990s    │
-│  Fabric           多路径 RDMA   Packet Spraying+   2024     │
+│  STrack           多路径 RDMA   Packet Spraying+   2024     │
 │                                  SACK+路径黑名单             │
 │  DCQCN            Rate-based    CNP+alpha量化+     2015     │
 │                                  速率恢复                   │
@@ -230,17 +230,17 @@ ECMP 本身不是传输协议，而是一种 **网络层机制**。但在 Fabric
 
 ---
 
-## 4. Fabric：多路径 RDMA 与选择性重传
+## 4. STrack：多路径 RDMA 与选择性重传
 
 ### 4.1 背景
 
-Fabric 是 Meta（Facebook）在 NSDI'24 提出的多路径 RDMA 传输协议，专为 AI/ML 集群设计。其核心洞察是：**在拥有丰富多路径的数据中心网络中，单路径传输无法充分利用网络容量。**
+STrack 是 Le et al. 在 arXiv:2407.15266 (2024) 提出的多路径 RDMA 传输协议，专为 AI/ML 集群设计。其核心洞察是：**在拥有丰富多路径的数据中心网络中，单路径传输无法充分利用网络容量。**
 
 ### 4.2 核心机制
 
 #### 4.2.1 Packet Spraying（包喷洒）
 
-与 ECMP 的"按流选路"不同，Fabric 将 **同一个流内的每个包** 分散到不同路径：
+与 ECMP 的"按流选路"不同，STrack 将 **同一个流内的每个包** 分散到不同路径：
 
 ```
 Path 1: pkt_0, pkt_3, pkt_6, ...
@@ -256,7 +256,7 @@ pkt.routing_tag = path_id + 1  // 1-indexed
 
 #### 4.2.2 SACK Bitmap（选择性确认）
 
-由于包走不同路径，到达顺序可能乱序。Fabric 使用 **SACK bitmap** 精确告知发送端哪些包已收到：
+由于包走不同路径，到达顺序可能乱序。STrack 使用 **SACK bitmap** 精确告知发送端哪些包已收到：
 
 ```
 接收端维护：
@@ -278,7 +278,7 @@ for i in 0..64:
 
 #### 4.2.3 路径黑名单（Path Blacklist）
 
-当某条路径上出现 ECN 标记时，Fabric 不是直接降窗，而是 **将该路径加入黑名单**：
+当某条路径上出现 ECN 标记时，STrack 不是直接降窗，而是 **将该路径加入黑名单**：
 
 ```
 if ack.ecn:
@@ -295,7 +295,7 @@ if ack.ecn:
 
 ### 4.3 两种模式
 
-Fabric 支持两种模式：
+STrack 支持两种模式：
 
 | 模式 | 行为 | 用途 |
 |------|------|------|
@@ -306,7 +306,7 @@ Fabric 支持两种模式：
 
 ```rust
 pub struct STrackProtocol {
-    mode: STrackMode,           // Ecmp or Fabric
+    mode: STrackMode,           // Ecmp or STrack
     paths: Vec<PathState>,      // 每条路径状态
     tx_flows: HashMap<FlowId, FlowTxState>,
     rx_flows: HashMap<FlowId, FlowRxState>,
@@ -321,7 +321,7 @@ struct PathState {
 fn pick_path(now: u64) -> Option<u8> {
     match mode {
         Ecmp => Some(0),
-        Fabric => {
+        STrack => {
             // 轮询选择可用路径
             for _ in 0..paths.len():
                 let idx = (cursor + 1) % paths.len()
@@ -795,7 +795,7 @@ fn on_data(&mut self, pkt: &Packet, now: u64) -> Vec<Packet> {
 |------|----------|----------|
 | TCP | init_cwnd, ssthresh | 2 |
 | ECMP | hash_seed | 1 |
-| Fabric | blacklist_duration, init_cwnd | 2 |
+| STrack | blacklist_duration, init_cwnd | 2 |
 | DCQCN | g, RAI, K, RateStep, HyperStep, alpha | 6+ |
 | HPCC | target_util, W_AI | 2 |
 | Swift | min_rtt, rate bounds | 2 |
@@ -806,7 +806,7 @@ fn on_data(&mut self, pkt: &Packet, now: u64) -> Vec<Packet> {
 |------|----------|----------|
 | TCP | 通用、兼容旧系统 | 超低延迟 RDMA |
 | ECMP | 网络层负载均衡 baseline | 需要路径级调优 |
-| Fabric | 多路径 RDMA、AI 训练 | 单路径拓扑 |
+| STrack | 多路径 RDMA、AI 训练 | 单路径拓扑 |
 | DCQCN | RoCEv2、lossless 网络 | 无 ECN 支持的旧网络 |
 | HPCC | 可编程交换机环境 | 传统固定功能交换机 |
 | Swift | 需要极简实现的场景 | RTT 测量不可靠的网络 |
@@ -819,7 +819,7 @@ fn on_data(&mut self, pkt: &Packet, now: u64) -> Vec<Packet> {
 |------|---------|--------|----------|------|
 | TCP | ~800μs | 低 | 中 | 平衡 |
 | ECMP | ~820μs | 低 | 高 | 单路径瓶颈 |
-| Fabric | ~630μs | 高 | 高 | 多路径优势 |
+| STrack | ~630μs | 高 | 高 | 多路径优势 |
 | DCQCN | ~1770μs | 0% | 0 | 保守但无丢包 |
 | HPCC | ~3000μs | 高 | 高 | 占位实现未优化 |
 | Swift | ~4200μs | 0% | 0 | 占位实现未优化 |
@@ -852,7 +852,7 @@ let runner = SimRunner::new(topo, "ecmp".to_string(), |h, topo| {
     Box::new(STrackProtocol::new(h, STrackMode::Ecmp, topo))
 });
 
-// Fabric
+// STrack
 let runner = SimRunner::new(topo, "strack".to_string(), |h, topo| {
     Box::new(STrackProtocol::new(h, STrackMode::Strack, topo))
 });
@@ -941,7 +941,7 @@ impl Protocol for MyProtocol {
 2. **DCQCN** - Zhu et al. (2015). "Congestion Control for Large-Scale RDMA Deployments." *NSDI*.
 3. **HPCC** - Li et al. (2019). "High Precision Congestion Control." *SIGCOMM*.
 4. **Swift** - Kumar et al. (2020). "Swift: Delay is Simple and Effective for Congestion Control in the Datacenter." *SIGCOMM*.
-5. **Fabric** - Huang et al. (2024). "Fabric: A Reliable Multipath Transport for AI/ML Clusters." *NSDI*.
+5. **STrack** - Le et al. (2024). "STrack: A Reliable Multipath Transport for AI/ML Clusters." *arXiv:2407.15266*.
 6. **DCTCP** - Alizadeh et al. (2010). "Data Center TCP." *SIGCOMM*.（DCQCN 的前置工作）
 
 ---

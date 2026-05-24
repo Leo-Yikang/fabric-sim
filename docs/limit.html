@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fabric-Sim 限制与差距分析</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --fg: #1e293b;
+      --accent: #2563eb;
+      --accent-light: #dbeafe;
+      --border: #cbd5e1;
+      --code-bg: #f1f5f9;
+      --header-bg: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      --shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.7;
+    }
+    .page-header {
+      background: var(--header-bg);
+      color: #fff;
+      padding: 3rem 2rem 2rem;
+      text-align: center;
+      box-shadow: var(--shadow);
+    }
+    .page-header h1 {
+      margin: 0 0 0.5rem;
+      font-size: 2.2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .page-header .meta {
+      opacity: 0.85;
+      font-size: 0.95rem;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    #TOC {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+    #TOC > ul { padding-left: 0; }
+    #TOC li { list-style: none; margin: 0.3rem 0; }
+    #TOC a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    #TOC a:hover { text-decoration: underline; }
+    h1, h2, h3, h4 {
+      font-weight: 600;
+      margin-top: 2.5rem;
+      margin-bottom: 1rem;
+      scroll-margin-top: 1rem;
+    }
+    h1 { font-size: 1.8rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.5rem; }
+    h2 { font-size: 1.5rem; color: #334155; }
+    h3 { font-size: 1.25rem; color: #475569; }
+    h4 { font-size: 1.1rem; color: #64748b; }
+    p { margin: 1rem 0; }
+    a { color: var(--accent); }
+    blockquote {
+      margin: 1.5rem 0;
+      padding: 1rem 1.5rem;
+      background: var(--accent-light);
+      border-left: 4px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      color: #1e3a5f;
+    }
+    code {
+      font-family: "JetBrains Mono", "Fira Code", Menlo, Monaco, Consolas, monospace;
+      background: var(--code-bg);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    pre {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 1.25rem;
+      border-radius: 10px;
+      overflow-x: auto;
+      box-shadow: var(--shadow);
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      font-size: 0.95rem;
+    }
+    th {
+      background: #f1f5f9;
+      font-weight: 600;
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 2px solid var(--border);
+    }
+    td {
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    ul, ol { padding-left: 1.5rem; }
+    li { margin: 0.35rem 0; }
+    hr {
+      border: none;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+      margin: 2.5rem 0;
+    }
+    @media (max-width: 640px) {
+      .container { padding: 1rem; }
+      .page-header h1 { font-size: 1.6rem; }
+      table { font-size: 0.85rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="page-header">
+  <h1>📊 Fabric-Sim 限制与差距分析</h1>
+  <div class="meta">文档版本 v0.5.0 · 2026-05-24</div>
+</div>
+<div class="container">
+
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#fabric-sim-限制与差距分析"
+id="toc-fabric-sim-限制与差距分析">Fabric-Sim 限制与差距分析</a>
+<ul>
+<li><a href="#一性能瓶颈单线程-des-架构约束"
+id="toc-一性能瓶颈单线程-des-架构约束">一、性能瓶颈（单线程 DES
+架构约束）</a>
+<ul>
+<li><a href="#事件队列olog-n-的堆操作是头号瓶颈"
+id="toc-事件队列olog-n-的堆操作是头号瓶颈">1.1 事件队列：O(log N)
+的堆操作是头号瓶颈</a></li>
+<li><a href="#包生命周期hashmap-是第二个热点"
+id="toc-包生命周期hashmap-是第二个热点">1.2 包生命周期：HashMap
+是第二个热点</a></li>
+<li><a href="#事件密度爆炸txtick-的轮询代价"
+id="toc-事件密度爆炸txtick-的轮询代价">1.3 事件密度爆炸：TxTick
+的”轮询”代价</a></li>
+<li><a href="#交换机模型内存分散与重复分配"
+id="toc-交换机模型内存分散与重复分配">1.4
+交换机模型：内存分散与重复分配</a></li>
+<li><a href="#协议栈动态分发的间接开销"
+id="toc-协议栈动态分发的间接开销">1.5
+协议栈：动态分发的间接开销</a></li>
+<li><a href="#单线程天花板无法横向扩展"
+id="toc-单线程天花板无法横向扩展">1.6
+单线程天花板：无法横向扩展</a></li>
+<li><a href="#瓶颈优先级与实施状态" id="toc-瓶颈优先级与实施状态">1.7
+瓶颈优先级与实施状态</a></li>
+<li><a href="#优化建议" id="toc-优化建议">1.8 优化建议</a></li>
+</ul></li>
+<li><a href="#二rdma-语义与数据中心网络特性差距"
+id="toc-二rdma-语义与数据中心网络特性差距">二、RDMA
+语义与数据中心网络特性差距</a>
+<ul>
+<li><a href="#协议层rdma-核心语义成熟度"
+id="toc-协议层rdma-核心语义成熟度">2.1 协议层：RDMA
+核心语义成熟度</a></li>
+<li><a href="#拥塞控制与无损网络机制成熟度"
+id="toc-拥塞控制与无损网络机制成熟度">2.2
+拥塞控制与无损网络机制成熟度</a></li>
+<li><a href="#硬件层次单-nic-零延迟过于理想"
+id="toc-硬件层次单-nic-零延迟过于理想">2.3 硬件层次：单 NIC
+零延迟过于理想</a></li>
+<li><a href="#训练语义flow-级-vs-job-级"
+id="toc-训练语义flow-级-vs-job-级">2.4 训练语义：Flow 级 vs Job
+级</a></li>
+<li><a href="#交换机模型与真实硬件差距"
+id="toc-交换机模型与真实硬件差距">2.5
+交换机模型：与真实硬件差距</a></li>
+<li><a href="#建议改进优先级" id="toc-建议改进优先级">2.6
+建议改进优先级</a></li>
+</ul></li>
+<li><a href="#相关文件" id="toc-相关文件">相关文件</a></li>
+<li><a href="#三实施进度总览"
+id="toc-三实施进度总览">三、实施进度总览</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="fabric-sim-限制与差距分析">Fabric-Sim 限制与差距分析</h1>
+<blockquote>
+<p><strong>文档版本</strong>：v0.5.0-20260524
+<strong>对应代码版本</strong>：fabric-sim 0.1.0 + RDMA enhancement
+<strong>分析范围</strong>：性能瓶颈 + RDMA 语义差距 + 模型简化点 +
+<strong>实施进度</strong></p>
+</blockquote>
+<hr />
+<h2 id="一性能瓶颈单线程-des-架构约束">一、性能瓶颈（单线程 DES
+架构约束）</h2>
+<blockquote>
+<p>本节从 <strong>引擎层、内存层、事件密度、模型层</strong>
+四个维度，分析当前单线程 DES
+架构在面向大规模通信集群时的结构性性能瓶颈。这些瓶颈不属于代码缺陷，而是架构设计在规模扩展时的天然约束。</p>
+<p><strong>单线程优化实施状态</strong>：P1/P2/P3/P5 已完成并验证通过，P4
+待评估。</p>
+</blockquote>
+<h3 id="事件队列olog-n-的堆操作是头号瓶颈">1.1 事件队列：O(log N)
+的堆操作是头号瓶颈</h3>
+<p><strong>现状</strong>：<code>EventQueue</code> 基于
+<code>std::collections::BinaryHeap</code>，<code>push/pop</code> 均为
+<strong>O(log N)</strong>，且内存布局呈树状，缓存局部性差。</p>
+<p><strong>大规模下的问题</strong>：</p>
+<ul>
+<li>一个 1024 节点的 Leaf-Spine 拓扑，AllToAll
+流量下，每秒仿真时间可能产生 <strong>数千万到上亿事件</strong>（TxTick +
+PacketArrive + PacketDepart + 定时器重传）。</li>
+<li>BinaryHeap 的 sift-up/sift-down 涉及随机内存访问，CPU cache miss
+比例随队列长度增加而恶化。</li>
+<li>全局 <code>EVENT_SEQ: AtomicU64</code> 在超高频事件创建时，虽然用了
+<code>Relaxed</code>，但在多核缓存一致性协议下仍有一定开销。</li>
+</ul>
+<h4 id="已实施方案4-ary-heap四叉堆">已实施方案：4-ary
+heap（四叉堆）</h4>
+<p>将 <code>BinaryHeap</code> 替换为<strong>自实现 4-ary
+heap</strong>（<code>src/core/queue.rs</code>）。</p>
+<ul>
+<li><strong>原理</strong>：4-ary heap 的树高约为同规模二叉堆的一半（log₄
+N vs log₂ N），sift-up/sift-down 的内存跳转次数更少。</li>
+<li><strong>关键细节</strong>：<code>Event</code> 的 <code>Ord</code>
+实现是为
+<code>BinaryHeap</code>（最大堆）<strong>反向</strong>设计的，因此 4-ary
+heap 内部直接比较 <code>time</code> 和 <code>seq</code>，不依赖
+<code>Ord</code> trait。</li>
+<li><strong>复杂度</strong>：push/pop 仍为 O(log N)，但常数因子降低约
+30~50%（更少的 swap 次数 + 更浅的树）。</li>
+<li><strong>风险与回退</strong>：实现简单，仅 60
+行代码；如果后续发现正确性问题，可直接替换回
+<code>BinaryHeap</code>（接口完全兼容）。</li>
+</ul>
+<h3 id="包生命周期hashmap-是第二个热点">1.2 包生命周期：HashMap
+是第二个热点</h3>
+<p><strong>现状</strong>：<code>packet_buf: HashMap&lt;u64, Packet&gt;</code>
+作为包的”全局暂存区”，每个包从生成到销毁经历两次 HashMap
+操作（<code>insert</code> + <code>remove</code>）。</p>
+<p><strong>大规模下的问题</strong>：</p>
+<ul>
+<li><code>HashMap</code> 的 insert/remove
+涉及哈希计算、桶定位、可能的重新哈希/内存分配、节点插入/移除。</li>
+<li>在 100Gbps 链路、MTU=1KB 的设定下，一条链路每 80ns
+就能发一个包。一个 48
+端口交换机满负载时，事件处理频率极高，<code>packet_buf</code>
+成为热点。</li>
+</ul>
+<h4 id="已实施方案自实现-packetslab-allocator">已实施方案：自实现
+PacketSlab allocator</h4>
+<p>引入 <code>PacketSlab</code>
+结构（<code>src/sim_runner/mod.rs</code>），用
+<code>Vec&lt;Option&lt;Packet&gt;&gt;</code> + 空闲列表替代
+<code>HashMap</code>。</p>
+<ul>
+<li><strong>原理</strong>：Slab allocator
+通过数组索引直接定位，insert/remove 均为
+O(1)，且无哈希开销。<code>remove</code> 后索引放入 <code>free</code>
+列表供后续复用。</li>
+<li><strong>关键改动</strong>：
+<ul>
+<li><code>packet_buf_insert(pkt: Packet) -&gt; u64</code>：插入包并返回
+slab 索引，<strong>同时覆盖 <code>pkt.id</code></strong> 为 slab
+索引，确保 Event 携带的 <code>packet_id</code> 与 slab
+位置一一对应。</li>
+<li><code>packet_buf_remove(pid: u64) -&gt; Option&lt;Packet&gt;</code>：按索引直接取出。</li>
+<li>交换机出队转发时，包重新插入 Slab
+获得<strong>新索引</strong>（原位置已被 <code>remove</code>
+释放），Event 使用新索引。</li>
+</ul></li>
+<li><strong>收益</strong>：消除了每次包传输的两次哈希操作，内存布局更连续。</li>
+<li><strong>副作用</strong>：去掉了 <code>global_pid</code>
+全局递增计数器，包的 <code>id</code> 不再是全局单调递增（而是 slab
+索引，可复用）。不影响仿真逻辑，只影响调试追踪。</li>
+</ul>
+<h3 id="事件密度爆炸txtick-的轮询代价">1.3 事件密度爆炸：TxTick
+的”轮询”代价</h3>
+<p><strong>现状</strong>：每个主机每 <strong>200ns</strong> 固定触发一个
+<code>TxTick</code>。当 <code>cwnd</code> 满或没有活跃流时，会退化为
+<strong>25us</strong> 的轮询。</p>
+<p><strong>大规模下的问题</strong>：</p>
+<ul>
+<li>假设 10,000 节点集群，全部活跃 → 每 200ns 产生 <strong>10,000 个
+TxTick 事件</strong>，即 <strong>50M events/ms</strong>。</li>
+<li>即使 release 模式达到 25M events/sec，光 TxTick 就占用了 2000
+倍的处理能力——这根本跑不动。</li>
+<li>实际上大部分 TxTick
+是”空转”（<code>pkts.is_empty()</code>），但模拟器仍需调度 → 弹出 → 分发
+→ 判断。</li>
+</ul>
+<p><strong>根本矛盾</strong>：精细的时间粒度（200ns
+tick）与大规模节点数之间存在 <strong>N × granularity</strong>
+的乘积效应。</p>
+<h4
+id="已实施方案txtick-完全事件驱动-rto-timeout-独立定时">已实施方案：TxTick
+完全事件驱动 + RTO Timeout 独立定时</h4>
+<p><strong>核心思路</strong>：让协议栈决定”我什么时候需要下一次
+tick”，模拟器不再主动空转轮询。</p>
+<h5 id="protocol-trait-扩展">Protocol trait 扩展</h5>
+<p>新增两个方法（<code>src/nic/protocol.rs</code>）：</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">/// 当前是否有待发送的工作（cwnd 有空间可发新数据，或重传队列非空）</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> has_pending_work(<span class="op">&amp;</span><span class="kw">self</span>) <span class="op">-&gt;</span> <span class="dt">bool</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">/// 返回最早的未确认包的 RTO 截止时间（send_time + rto_ns）</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> next_rto_deadline(<span class="op">&amp;</span><span class="kw">self</span>) <span class="op">-&gt;</span> <span class="dt">Option</span><span class="op">&lt;</span><span class="dt">u64</span><span class="op">&gt;;</span></span></code></pre></div>
+<ul>
+<li><code>has_pending_work</code>：STrack 实现中遍历活跃流，检查
+<code>(in_flight &lt; cwnd &amp;&amp; next_seq &lt; total_packets)</code>
+或 <code>retransmit_queue</code> 非空。</li>
+<li><code>next_rto_deadline</code>：遍历所有
+<code>send_times</code>，找最小 <code>send_t + rto_ns</code>。</li>
+</ul>
+<h5
+id="调度逻辑重构srcsim_runnerhost.rs">调度逻辑重构（<code>src/sim_runner/host.rs</code>）</h5>
+<ul>
+<li><strong><code>FlowStart</code></strong>：调度 TxTick @
+now（初始触发）。</li>
+<li><strong><code>handle_tx_tick</code> 发送完包后</strong>：
+<ul>
+<li>若 <code>has_pending_work()</code> → 调度 TxTick @ now +
+<code>tx_tick_ns</code>（保留 pacing 间隔）。</li>
+<li>否则若 <code>next_rto_deadline()</code> 返回 Some(t) → 调度
+<code>Timeout { timer_id: 0 }</code> @ t（独立 RTO 定时器）。</li>
+<li>否则完全静默，等外部事件驱动。</li>
+</ul></li>
+<li><strong><code>handle_arrive_at_host</code>（ACK/NACK
+到达后）</strong>：
+<ul>
+<li>若 <code>has_pending_work()</code> → 调度 TxTick @
+now（立即响应，无延迟）。</li>
+<li>否则按 RTO 定时或静默。</li>
+</ul></li>
+<li><strong><code>dispatch</code> 新增 <code>Timeout</code>
+处理</strong>：RTO Timeout 到期 → 触发 TxTick @
+now，让协议栈检查超时重传。</li>
+</ul>
+<h5 id="收益与验证">收益与验证</h5>
+<ul>
+<li><strong>彻底消除空转</strong>：cwnd 满时不再有 25us
+间隔的轮询事件。</li>
+<li><strong>RTO 检查不受频率限制</strong>：由独立 Timeout 事件精确在
+<code>send_time + rto_ns</code> 触发，不再依赖 TxTick 的采样精度。</li>
+<li><strong>59 个测试全部通过</strong>，包括
+incast、alltoall、permutation、poisson 到达等多种流量模式。</li>
+</ul>
+<h3 id="交换机模型内存分散与重复分配">1.4
+交换机模型：内存分散与重复分配</h3>
+<p><strong>现状</strong>：<code>SwitchPort</code> 每个端口有一个
+<code>VecDeque&lt;Packet&gt;</code>，<code>Switch::ingress</code>
+中路由查表返回 <code>Vec&lt;PortId&gt;</code>。</p>
+<p><strong>大规模下的问题</strong>：</p>
+<ul>
+<li><code>VecDeque</code> 的 ring buffer
+在频繁入队/出队时表现不错，但每个端口独立分配内存，缓存局部性差。</li>
+<li><code>ingress()</code> 中 <code>ports.to_vec()</code>
+每次都会<strong>分配一个临时 Vec</strong>（即使只有 2~4
+个端口），这是完全不必要的堆分配。</li>
+</ul>
+<h4 id="已实施方案去掉-to_vec用内部-block-释放借用">已实施方案：去掉
+<code>to_vec()</code>，用内部 block 释放借用</h4>
+<p>（<code>src/network/switch.rs</code>）</p>
+<ul>
+<li><strong>问题根源</strong>：<code>ports.to_vec()</code> 是为了避免
+<code>self.routing</code> 的不可变借用和 <code>self.ports</code>
+的可变借用冲突。</li>
+<li><strong>解法</strong>：用内部 block 先计算
+<code>chosen</code>（<code>PortId</code> 是 <code>Copy</code>），block
+结束后释放对 <code>self.routing</code> 的借用，再访问
+<code>self.ports</code>。</li>
+</ul>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> chosen <span class="op">=</span> <span class="op">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> ports <span class="op">=</span> <span class="cf">match</span> <span class="kw">self</span><span class="op">.</span>routing<span class="op">.</span>ports_for(pkt<span class="op">.</span>dst) <span class="op">{</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>        <span class="cn">Some</span>(p) <span class="cf">if</span> <span class="op">!</span>p<span class="op">.</span>is_empty() <span class="op">=&gt;</span> p<span class="op">,</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        _ <span class="op">=&gt;</span> <span class="op">{</span> <span class="op">...</span> <span class="op">}</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="op">};</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> idx <span class="op">=</span> <span class="op">...;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    ports[idx]   <span class="co">// 返回 PortId（Copy），借用随 block 结束释放</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> port <span class="op">=</span> <span class="op">&amp;</span><span class="kw">mut</span> <span class="kw">self</span><span class="op">.</span>ports[chosen <span class="kw">as</span> <span class="dt">usize</span>]<span class="op">;</span>  <span class="co">// 可变借用，无冲突</span></span></code></pre></div>
+<ul>
+<li><strong>收益</strong>：每次入包节省一次小 Vec
+堆分配（路由端口通常只有 2~4 个）。</li>
+<li><strong>风险</strong>：零风险，一行语义等价替换。</li>
+</ul>
+<h3 id="协议栈动态分发的间接开销">1.5 协议栈：动态分发的间接开销</h3>
+<p><strong>现状</strong>：<code>protocols: Vec&lt;Box&lt;dyn Protocol&gt;&gt;</code>，每个
+host 一个协议实例。</p>
+<p><strong>问题</strong>：</p>
+<ul>
+<li>每次访问协议栈需要 <strong>两次间接跳转</strong>：Vec 索引 → Box
+解引用 → vtable 查找。</li>
+<li><code>Protocol</code> trait 的 <code>on_tx_tick()</code> 返回
+<code>Vec&lt;Packet&gt;</code>，即使只发一个 ACK 也要做一次 Vec
+分配。</li>
+</ul>
+<h4 id="未实施方案泛型化-simrunnerp-protocol">未实施方案：泛型化
+<code>SimRunner&lt;P: Protocol&gt;</code></h4>
+<ul>
+<li><strong>方案</strong>：将 <code>Box&lt;dyn Protocol&gt;</code>
+替换为泛型参数 <code>P: Protocol</code>，编译器可在热路径上内联
+<code>on_tx_tick</code>/<code>on_ack</code>。</li>
+<li><strong>阻碍</strong>：<code>SimRunner</code> 在 <strong>15+
+处</strong> examples/tests
+中使用（<code>incast_compare</code>、<code>workload_sweep</code>、<code>matrix_workloads</code>
+等），全部需要显式标注类型（如
+<code>SimRunner&lt;STrackProtocol&gt;</code>）。改动面广，但逻辑简单。</li>
+<li><strong>评估</strong>：vtable 开销在已完成的 P1/P2/P3
+优化后占比降低，当前投入产出比偏低。建议作为<strong>后续可选项</strong>，在需要榨干最后
+5~10% 性能时实施。</li>
+</ul>
+<h3 id="单线程天花板无法横向扩展">1.6 单线程天花板：无法横向扩展</h3>
+<p><strong>这是最根本的瓶颈。</strong></p>
+<p>DES
+的因果一致性要求事件按时间顺序处理，天然串行。当前架构完全没有并行化：</p>
+<ul>
+<li>没有 <strong>LP（Logical Process）</strong> 分区（如 ROSS、OMNeT++
+的并行 DES）。</li>
+<li>没有 <strong>乐观时间推进</strong>（Time Warp）。</li>
+<li>没有
+<strong>保守同步</strong>（Chandy-Misra-Bryant，空消息算法）。</li>
+</ul>
+<p>对于 10K+ 节点的 AI 集群 AllReduce 模拟，单线程 DES
+的吞吐量上限决定了：</p>
+<ul>
+<li>要么缩小拓扑规模</li>
+<li>要么降低时间精度</li>
+<li>要么忍受数小时的仿真时间</li>
+</ul>
+<h3 id="瓶颈优先级与实施状态">1.7 瓶颈优先级与实施状态</h3>
+<table>
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 13%" />
+<col style="width: 22%" />
+<col style="width: 22%" />
+<col style="width: 22%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>优先级</th>
+<th>瓶颈</th>
+<th>实施状态</th>
+<th>改造难度</th>
+<th>关键文件</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>P0</td>
+<td><strong>单线程 DES 架构</strong></td>
+<td>未开始</td>
+<td>高</td>
+<td>—</td>
+</tr>
+<tr class="even">
+<td>P1</td>
+<td><strong>TxTick 事件密度</strong></td>
+<td>✅ 已完成</td>
+<td>中</td>
+<td><code>protocol.rs</code>, <code>host.rs</code>,
+<code>mod.rs</code></td>
+</tr>
+<tr class="odd">
+<td>P2</td>
+<td><strong>事件队列堆操作</strong></td>
+<td>✅ 已完成（4-ary heap）</td>
+<td>中</td>
+<td><code>core/queue.rs</code></td>
+</tr>
+<tr class="even">
+<td>P3</td>
+<td><strong>packet_buf HashMap</strong></td>
+<td>✅ 已完成（Slab）</td>
+<td>中</td>
+<td><code>mod.rs</code>, <code>host.rs</code>,
+<code>switch.rs</code></td>
+</tr>
+<tr class="odd">
+<td>P4</td>
+<td><code>Box&lt;dyn Protocol&gt;</code> vtable</td>
+<td>⏳ 待评估</td>
+<td>低</td>
+<td><code>mod.rs</code>, <code>lib.rs</code>, <code>examples/*</code>,
+<code>tests/*</code></td>
+</tr>
+<tr class="even">
+<td>P5</td>
+<td><code>ingress()</code> 中的 <code>to_vec()</code></td>
+<td>✅ 已完成</td>
+<td>低</td>
+<td><code>network/switch.rs</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="优化建议">1.8 优化建议</h3>
+<ul>
+<li><p><strong>已完成的 Phase 1</strong>（P1+P2+P3+P5）：</p>
+<ul>
+<li>消除了 TxTick 空转轮询</li>
+<li>事件队列从二叉堆升级为四叉堆</li>
+<li>包暂存从 HashMap 换为 Slab allocator</li>
+<li>交换机入包去掉临时 Vec 分配</li>
+<li><strong>下一步</strong>：运行 <code>cargo bench</code> 和
+<code>incast_compare</code> example，量化实际吞吐提升。</li>
+</ul></li>
+<li><p><strong>Phase 2（可选）</strong>：P4 泛型化。如果 benchmark 显示
+vtable 仍是热点，再实施。</p></li>
+<li><p><strong>Phase 3（远期）</strong>：保守并行 DES（LP
+分区）。当单线程优化触及天花板、且必须模拟 10K+ 节点时启动。</p></li>
+</ul>
+<hr />
+<h2 id="二rdma-语义与数据中心网络特性差距">二、RDMA
+语义与数据中心网络特性差距</h2>
+<blockquote>
+<p><strong>实施状态说明（2026-05-24）</strong>：RDMA enhancement
+已有第一版结构和最小端到端路径，但不能按“P1-P4
+全部成熟完成”理解。当前更准确的定位是：<strong>RDMA Write
+最小端到端原型可跑；RDMA Send/RNR、PFC、Multi-Rail、Host Delay、Training
+DAG 仍处于结构级或单元测试级原型</strong>。</p>
+</blockquote>
+<p>成熟度分级：</p>
+<ul>
+<li><strong>结构完成</strong>：类型、字段、模块和基础 API 已存在。</li>
+<li><strong>原型可跑</strong>：局部逻辑有单元测试或可被调用。</li>
+<li><strong>端到端验证</strong>：通过 <code>SimRunner</code>
+和真实拓扑/事件流完成。</li>
+<li><strong>可校准可信</strong>：与真实硬件/论文模型的语义和参数对齐。</li>
+</ul>
+<h3 id="协议层rdma-核心语义成熟度">2.1 协议层：RDMA 核心语义成熟度</h3>
+<table>
+<colgroup>
+<col style="width: 17%" />
+<col style="width: 35%" />
+<col style="width: 29%" />
+<col style="width: 17%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>能力</th>
+<th>当前成熟度</th>
+<th>实现文件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>QP/Queue Pair 状态机</strong></td>
+<td>结构完成</td>
+<td><code>src/nic/rdma.rs</code></td>
+<td>有 <code>QpState</code>、<code>QueuePair</code>、PSN、WQE/CQE
+结构；连接生命周期、错误恢复、PSN 回绕未校准</td>
+</tr>
+<tr class="even">
+<td><strong>WQE/CQE 队列模型</strong></td>
+<td>结构完成</td>
+<td><code>src/nic/rdma.rs</code></td>
+<td>有 WQE/CQE 类型和队列字段；doorbell、completion batching、CQ polling
+仍未进入主事件流</td>
+</tr>
+<tr class="odd">
+<td><strong>Message 边界</strong></td>
+<td>原型可跑</td>
+<td><code>src/nic/rdma_protocol.rs</code></td>
+<td>支持 Solo/First/Middle/Last 分段和基础重组</td>
+</tr>
+<tr class="even">
+<td><strong>RDMA Write</strong></td>
+<td>最小端到端验证</td>
+<td><code>src/nic/rdma_protocol.rs</code>,
+<code>tests/integration_rdma.rs</code></td>
+<td>默认 <code>start_flow()</code> 使用 Write，单包/多包/双向流可通过
+<code>SimRunner</code> 完成并统计 FCT</td>
+</tr>
+<tr class="odd">
+<td><strong>RDMA Send</strong></td>
+<td>原型可跑</td>
+<td><code>src/nic/rdma_protocol.rs</code></td>
+<td><code>post_send()</code> 存在；Send + posted recv
+尚未通过端到端测试闭环</td>
+</tr>
+<tr class="even">
+<td><strong>RNR (Receiver Not Ready)</strong></td>
+<td>单元测试级原型</td>
+<td><code>src/nic/rdma_protocol.rs</code></td>
+<td>可产生 RNR NAK 并设置退避；RNR 后恢复发送仍未端到端验证</td>
+</tr>
+<tr class="odd">
+<td><strong>RDMA Read / Atomic</strong></td>
+<td>未实现</td>
+<td>—</td>
+<td>enum 有 opcode，但没有真正 read request/response 或 atomic 语义</td>
+</tr>
+<tr class="even">
+<td><strong>重传语义</strong></td>
+<td>简化</td>
+<td><code>src/nic/rdma_protocol.rs</code></td>
+<td>当前复用 cwnd/RTO 和 packet ACK；不是完整 IB/RoCE ACK/NAK/PSN
+语义</td>
+</tr>
+</tbody>
+</table>
+<p>当前结论：RDMA 模块已经从“纯结构”推进到 <strong>Write
+路径最小可跑</strong>，但仍不是成熟 RoCE/RDMA
+模拟器。它适合继续做协议原型，不适合直接用于真实 RDMA 对标。</p>
+<h3 id="拥塞控制与无损网络机制成熟度">2.2
+拥塞控制与无损网络机制成熟度</h3>
+<table>
+<colgroup>
+<col style="width: 17%" />
+<col style="width: 35%" />
+<col style="width: 29%" />
+<col style="width: 17%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>能力</th>
+<th>当前成熟度</th>
+<th>实现文件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>CNP / DCQCN</strong></td>
+<td>简化原型</td>
+<td><code>src/nic/dcqcn.rs</code></td>
+<td>有 CNP 控制包、alpha、rate-based
+pacing；参数、恢复曲线、硬件语义未校准</td>
+</tr>
+<tr class="even">
+<td><strong>HPCC / Swift</strong></td>
+<td>占位原型</td>
+<td><code>src/nic/hpcc.rs</code>, <code>src/nic/swift.rs</code></td>
+<td>文件内明确是简化/占位实现，不能作为可信 baseline</td>
+</tr>
+<tr class="odd">
+<td><strong>Priority Queue</strong></td>
+<td>原型可跑</td>
+<td><code>src/network/switch.rs</code></td>
+<td>有 2 个优先级队列，按 <code>routing_tag</code> 临时映射优先级</td>
+</tr>
+<tr class="even">
+<td><strong>PFC</strong></td>
+<td>结构/计数器级原型</td>
+<td><code>src/network/switch.rs</code></td>
+<td>有 <code>paused</code> 标志和 pause/resume 计数；未建模 pause frame
+上游反压和 HOL blocking</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared Buffer</strong></td>
+<td>结构级视图</td>
+<td><code>src/network/switch.rs</code></td>
+<td>有 <code>total_queue_bytes()</code>
+视图；丢包/阈值仍主要按端口队列，不是真 shared buffer allocator</td>
+</tr>
+<tr class="even">
+<td><strong>ECN + PFC 协同</strong></td>
+<td>未成熟</td>
+<td><code>src/network/switch.rs</code></td>
+<td>仍是单一 ECN threshold，没有 Kmin/Kmax/Pmax 或动态阈值</td>
+</tr>
+</tbody>
+</table>
+<p>当前结论：数据中心 RDMA 网络机制已有可扩展接口和部分简化行为，但
+PFC/Shared Buffer 还不能用于分析真实无损以太网的 head-of-line blocking
+或 pause storm。</p>
+<h3 id="硬件层次单-nic-零延迟过于理想">2.3 硬件层次：单 NIC
+零延迟过于理想</h3>
+<pre><code>当前模型:  Host ──→ NIC ──→ Leaf Switch
+真实模型:  GPU → NVLink → NVSwitch → PCIe → NIC → Leaf
+                    ↓
+              多 GPU / 多 NIC / 多 Rail</code></pre>
+<ul>
+<li><strong>NVLink/NVSwitch/PCIe
+延迟仅有独立模型</strong>：<code>src/network/host_delay.rs</code>
+提供延迟矩阵，但尚未接入 <code>SimRunner</code> 的事件路径。</li>
+<li><strong>多 NIC/Rail
+仅有拓扑原型</strong>：<code>src/topology/multi_rail.rs</code> 可生成多
+NIC entity，但当前仍把 NIC 当 host entity，缺少 GPU/Host/NIC
+层次和协议选路语义。</li>
+<li><strong>NIC 操作仍基本零延迟</strong>：主仿真路径未注入
+DMA、PCIe、doorbell、CQ polling 延迟。</li>
+<li><strong>无 NUMA 效应</strong>：CPU-GPU-NIC 亲和性影响未建模</li>
+</ul>
+<h3 id="训练语义flow-级-vs-job-级">2.4 训练语义：Flow 级 vs Job 级</h3>
+<p>P2 已完成 <code>TrainingJob</code> / <code>CollectiveOp</code>
+的静态展开，P4 也有 <code>training/dag.rs</code>
+辅助结构，但关键缺口仍在：</p>
+<ol type="1">
+<li><strong>Compute-Communication Overlap
+未接入主事件流</strong>：<code>training/dag.rs</code> 可构造
+DAG/offset，但不是运行时调度器。</li>
+<li><strong>无运行时 Collective DAG</strong>：AllReduce → AllGather →
+Barrier 的依赖关系仍静态化。</li>
+<li><strong>Pipeline Bubble 仅有抽象字段/辅助函数</strong>：PP
+空泡没有资源占用模型。</li>
+<li><strong>无 Tensor/Model/Expert Parallel
+组合</strong>：无法模拟真实大模型训练拓扑</li>
+</ol>
+<h3 id="交换机模型与真实硬件差距">2.5 交换机模型：与真实硬件差距</h3>
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 23%" />
+<col style="width: 47%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>当前模型</th>
+<th>成熟度</th>
+<th>真实交换机仍缺</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>每端口多优先级 FIFO</td>
+<td>原型</td>
+<td>WRR/SP/WFQ、VOQ、cell switching</td>
+</tr>
+<tr class="even">
+<td>单一 ECN threshold</td>
+<td>简化</td>
+<td>ECN marking profile、dynamic threshold</td>
+</tr>
+<tr class="odd">
+<td>PFC paused 标志</td>
+<td>结构级</td>
+<td>pause frame、上游反压、HOL blocking</td>
+</tr>
+<tr class="even">
+<td><code>total_queue_bytes()</code> shared buffer 视图</td>
+<td>结构级</td>
+<td>shared buffer 分配/抢占策略</td>
+</tr>
+<tr class="odd">
+<td>路由零延迟</td>
+<td>简化</td>
+<td>Switch pipeline + lookup delay</td>
+</tr>
+<tr class="even">
+<td>静态 ECMP/routing_tag</td>
+<td>简化</td>
+<td>Flowlet、Congestion-Aware Routing</td>
+</tr>
+</tbody>
+</table>
+<h3 id="建议改进优先级">2.6 建议改进优先级</h3>
+<pre><code>P1 (核心 RDMA 语义):
+  ├─ 增加 QP 状态机 + PSN + WQE/CQE 抽象
+  ├─ 实现 Message 级边界 (RDMA Write/Send/Read)
+  └─ 增加 RNR 和基本流控
+
+P2 (数据中心网络特性):
+  ├─ 实现 PFC pause/resume
+  ├─ 实现 CNP + Rate-based DCQCN
+  └─ 增加 Priority Queue + Shared Buffer
+
+P3 (硬件层次):
+  ├─ 多 NIC / 多 Rail 拓扑
+  ├─ NVLink/NVSwitch 简化模型
+  └─ PCIe/DMA 延迟注入
+
+P4 (训练语义完善):
+  ├─ Compute-Communication Overlap
+  ├─ Collective DAG + Barrier
+  └─ Pipeline Parallelism 空泡
+
+P5 (规模化):
+  ├─ Flow-level / Hybrid 仿真模式
+  └─ Parallel DES (LP 分区)</code></pre>
+<blockquote>
+<p>若目标是复现 STrack 论文实验并与真实硬件对标，<strong>P1 和 P2
+为最关键差距</strong>。</p>
+</blockquote>
+<hr />
+<h2 id="相关文件">相关文件</h2>
+<ul>
+<li><code>src/core/queue.rs</code> — 4-ary heap 事件队列实现</li>
+<li><code>src/core/event.rs</code> — 事件类型与全局 seq</li>
+<li><code>src/nic/rdma.rs</code> —
+QP状态机、PSN、WQE/CQE、MsgBoundary</li>
+<li><code>src/nic/rdma_protocol.rs</code> — RdmaProtocol（Write
+最小端到端可跑；Send/RNR 仍为原型）</li>
+<li><code>src/nic/protocol.rs</code> — Protocol trait(RDMA扩展方法)</li>
+<li><code>src/network/switch.rs</code> — 多优先级队列、PFC
+标志、shared-buffer 视图（未完整硬件语义）</li>
+<li><code>src/network/host_delay.rs</code> — NVLink/NVSwitch/PCIe
+延迟矩阵（未接入主路径）</li>
+<li><code>src/topology/multi_rail.rs</code> — 多 NIC/Rail 拓扑原型</li>
+<li><code>src/training/dag.rs</code> — 训练 DAG/Overlap
+辅助结构（非运行时调度器）</li>
+<li><code>src/sim_runner/mod.rs</code> — SimRunner 主循环 +
+PacketSlab</li>
+<li><code>src/sim_runner/host.rs</code> — 事件驱动 TxTick + RTO Timeout
+调度</li>
+<li><code>src/sim_runner/switch.rs</code> — 交换机事件处理</li>
+</ul>
+<h2 id="三实施进度总览">三、实施进度总览</h2>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>优先级</th>
+<th>模块</th>
+<th>状态</th>
+<th>关键文件</th>
+<th>提交版本</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>P1A</td>
+<td>QP状态机+PSN</td>
+<td>结构完成</td>
+<td><code>nic/rdma.rs</code></td>
+<td><code>8bf1a2a</code></td>
+</tr>
+<tr class="even">
+<td>P1B</td>
+<td>消息分段重组+Protocol扩展</td>
+<td>原型可跑</td>
+<td><code>nic/rdma_protocol.rs</code></td>
+<td><code>5f573da</code></td>
+</tr>
+<tr class="odd">
+<td>P1C</td>
+<td>RDMA Write 端到端</td>
+<td>最小端到端验证</td>
+<td><code>nic/rdma_protocol.rs</code>,
+<code>tests/integration_rdma.rs</code></td>
+<td>当前工作区</td>
+</tr>
+<tr class="even">
+<td>P1D</td>
+<td>RNR流控</td>
+<td>单元测试级原型</td>
+<td><code>nic/rdma_protocol.rs</code></td>
+<td><code>c9cdbe1</code></td>
+</tr>
+<tr class="odd">
+<td>P2A</td>
+<td>PFC</td>
+<td>结构/计数器级原型</td>
+<td><code>network/switch.rs</code></td>
+<td><code>8cd840f</code></td>
+</tr>
+<tr class="even">
+<td>P2B</td>
+<td>Shared Buffer</td>
+<td>结构级视图</td>
+<td><code>network/switch.rs</code></td>
+<td><code>ec9e785</code></td>
+</tr>
+<tr class="odd">
+<td>P3A</td>
+<td>多NIC/Rail</td>
+<td>拓扑原型</td>
+<td><code>topology/multi_rail.rs</code></td>
+<td><code>ec9e785</code></td>
+</tr>
+<tr class="even">
+<td>P3B</td>
+<td>NVLink/PCIe</td>
+<td>独立延迟模型</td>
+<td><code>network/host_delay.rs</code></td>
+<td><code>ec9e785</code></td>
+</tr>
+<tr class="odd">
+<td>P4</td>
+<td>Training DAG+Overlap</td>
+<td>辅助结构</td>
+<td><code>training/dag.rs</code></td>
+<td><code>ec9e785</code></td>
+</tr>
+<tr class="even">
+<td>P5</td>
+<td>并行DES</td>
+<td>⏳ 远期</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</body>
+</html>

@@ -392,6 +392,14 @@ impl Protocol for TcpReno {
         }
         min_deadline
     }
+
+    fn update_send_time(&mut self, flow_id: FlowId, seq: SeqNum, nic_depart_time: u64) {
+        if let Some(f) = self.tx_flows.get_mut(&flow_id) {
+            if f.send_times.contains_key(&seq) {
+                f.send_times.insert(seq, nic_depart_time);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

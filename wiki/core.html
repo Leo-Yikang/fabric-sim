@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>core 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:20px}
+  h3{font-size:1.3rem;color:var(--accent2);margin:18px 0 10px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.05rem}
+  ul{padding-left:24px;margin:10px 0}
+  li{margin:6px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:16px 20px;font-family:"Fira Code","Consolas",monospace;font-size:.92rem;overflow-x:auto;color:#c9d1d9;margin:14px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:10px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:14px 18px;border-radius:0 10px 10px 0;margin:14px 0;color:var(--muted)}
+  .badge{display:inline-block;background:rgba(129,140,248,.15);color:var(--accent2);padding:2px 10px;border-radius:20px;font-size:.8rem;margin-right:6px}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">core 模块</span>
+</div>
+
+<div class="slide-container">
+
+<section class="slide active">
+  <h2>🎯 core — 离散事件仿真引擎</h2>
+  <p style="font-size:1.2rem;color:var(--muted);margin-bottom:24px">阶段一核心成果：与网络概念完全解耦的通用 DES 引擎</p>
+  <div class="cols">
+    <div class="col">
+      <h3>模块职责</h3>
+      <ul>
+        <li><span class="badge">事件定义</span>统一的事件类型 Event 与种类 EventKind</li>
+        <li><span class="badge">优先队列</span>自定义 4-ary heap，百万级事件下高吞吐</li>
+        <li><span class="badge">时钟驱动</span>全局仿真时钟 SimTime = u64（纳秒）</li>
+        <li><span class="badge">调度器</span>Simulator 负责事件排序、派发、生命周期管理</li>
+      </ul>
+      <div class="note">引擎本身不知道什么是"包"或"交换机"，只认时间戳和 target ID — 这是解耦的关键。</div>
+    </div>
+    <div class="col">
+      <h3>文件结构</h3>
+      <div class="code-block">src/core/
+├── mod.rs        <span class="comment"># 模块入口，导出 Event/EventQueue/Simulator</span>
+├── event.rs      <span class="comment"># Event + EventKind + FIFO 稳定性排序</span>
+├── queue.rs      <span class="comment"># EventQueue（4-ary heap 实现）</span>
+└── simulator.rs  <span class="comment"># Simulator 主循环</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>事件类型与 FIFO 稳定性</h2>
+  <p>所有网络语义被编码为结构化枚举变体，避免字符串解析开销。</p>
+  <div class="code-block"><span class="keyword">pub enum</span> <span class="type">EventKind</span> {
+    <span class="type">PacketArrive</span>  { packet_id: <span class="type">u64</span>, src: <span class="type">EntityId</span> },
+    <span class="type">PacketDepart</span>  { packet_id: <span class="type">u64</span>, dst: <span class="type">EntityId</span>, port: <span class="type">u8</span> },
+    <span class="type">Timeout</span>       { timer_id: <span class="type">u64</span> },
+    <span class="type">FlowStart</span>     { flow_id: <span class="type">u32</span>, src: <span class="type">EntityId</span>, dst: <span class="type">EntityId</span>, bytes: <span class="type">u64</span> },
+    <span class="type">TxTick</span>        { host: <span class="type">EntityId</span> },
+    <span class="type">Stop</span>,
+    <span class="type">Custom</span>(<span class="type">String</span>),   <span class="comment"># 仅用于单元测试/示例</span>
+}</div>
+  <h3>全局原子序号保证 FIFO</h3>
+  <div class="code-block"><span class="keyword">static</span> <span class="type">EVENT_SEQ</span>: <span class="type">AtomicU64</span> = <span class="type">AtomicU64</span>::new(<span class="num">0</span>);
+
+<span class="keyword">impl</span> <span class="type">Ord</span> <span class="keyword">for</span> <span class="type">Event</span> {
+    <span class="keyword">fn</span> <span class="highlight">cmp</span>(&<span class="keyword">self</span>, other: &<span class="type">Self</span>) -> <span class="type">Ordering</span> {
+        <span class="comment">// 反向比较：BinaryHeap 是最大堆，反向后变成最小堆</span>
+        other.time.cmp(&<span class="keyword">self</span>.time)
+            .then_with(|| other.seq.cmp(&<span class="keyword">self</span>.seq))
+    }
+}</div>
+  <div class="note">当两个事件时间戳相同时，按插入顺序（seq）弹出，保证仿真确定性 — 这对可复现研究至关重要。</div>
+</section>
+
+<section class="slide">
+  <h2>EventQueue：4-ary Heap 优化</h2>
+  <p>标准库 BinaryHeap 是二叉堆；我们改用<strong>四叉堆</strong>（4-ary heap），树高减半，sift 操作缓存友好。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>核心操作</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">EventQueue</span> {
+    heap: <span class="type">Vec</span>&lt;<span class="type">Event</span>&gt;,
+}
+
+<span class="comment">// push: O(log₄ N)</span>
+<span class="keyword">pub fn</span> <span class="highlight">push</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, ev: <span class="type">Event</span>) {
+    <span class="keyword">self</span>.heap.push(ev);
+    <span class="keyword">self</span>.sift_up(<span class="keyword">self</span>.heap.len() - <span class="num">1</span>);
+}
+
+<span class="comment">// pop: O(log₄ N)</span>
+<span class="keyword">pub fn</span> <span class="highlight">pop</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>) -> <span class="type">Option</span>&lt;<span class="type">Event</span>&gt; {
+    <span class="comment">// 首尾交换 + 下沉</span>
+    ...
+}</div>
+    </div>
+    <div class="col">
+      <h3>sift_down 在四叉堆中的差异</h3>
+      <div class="code-block"><span class="keyword">fn</span> <span class="highlight">sift_down</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, <span class="keyword">mut</span> idx: <span class="type">usize</span>) {
+    <span class="keyword">let</span> len = <span class="keyword">self</span>.heap.len();
+    <span class="keyword">loop</span> {
+        <span class="keyword">let</span> first_child = idx * <span class="num">4</span> + <span class="num">1</span>;
+        <span class="keyword">if</span> first_child >= len { <span class="keyword">break</span>; }
+        <span class="keyword">let</span> last_child = (first_child + <span class="num">3</span>).min(len - <span class="num">1</span>);
+        <span class="keyword">let</span> <span class="keyword">mut</span> min = idx;
+        <span class="keyword">for</span> child <span class="keyword">in</span> first_child..=last_child {
+            <span class="keyword">if</span> <span class="type">Self</span>::ev_less(&<span class="keyword">self</span>.heap[child],
+                           &<span class="keyword">self</span>.heap[min]) {
+                min = child;
+            }
+        }
+        <span class="keyword">if</span> min == idx { <span class="keyword">break</span>; }
+        <span class="keyword">self</span>.heap.swap(idx, min);
+        idx = min;
+    }
+}</div>
+      <div class="note">每个节点最多 4 个子节点，sift 时比较范围从 2 个扩大到 4 个，但树高从 log₂N 降到 log₄N，整体内存访问次数更少。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>Simulator 主循环</h2>
+  <p>提供 step、run_until、run 三级驱动接口。内置 handler 注册机制（第一阶段使用），后续被 SimRunner 的集中式分发取代。</p>
+  <div class="code-block"><span class="keyword">pub struct</span> <span class="type">Simulator</span> {
+    clock: <span class="type">SimTime</span>,            <span class="comment">// 当前仿真时钟（ns）</span>
+    queue: <span class="type">EventQueue</span>,         <span class="comment">// 4-ary min-heap</span>
+    handlers: <span class="type">HashMap</span>&lt;<span class="type">EntityId</span>, <span class="type">Handler</span>&gt;,
+    processed: <span class="type">u64</span>,            <span class="comment">// 已处理事件总数</span>
+    stopped: <span class="type">bool</span>,
+}
+
+<span class="keyword">pub fn</span> <span class="highlight">step</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>) -> <span class="type">Option</span>&lt;<span class="type">SimTime</span>&gt; {
+    <span class="keyword">let</span> ev = <span class="keyword">self</span>.queue.pop()?;       <span class="comment">// 取出最早事件</span>
+    <span class="keyword">self</span>.clock = ev.time;             <span class="comment">// 推进时钟</span>
+    <span class="keyword">self</span>.processed += <span class="num">1</span>;
+    <span class="keyword">let</span> new_events = <span class="keyword">if let</span> <span class="type">Some</span>(h) = <span class="keyword">self</span>.handlers.get_mut(&ev.target) {
+        h(&ev, <span class="keyword">self</span>.clock)          <span class="comment">// handler 返回新事件</span>
+    } <span class="keyword">else</span> { <span class="type">Vec</span>::new() };
+    <span class="keyword">for</span> nev <span class="keyword">in</span> new_events {
+        <span class="keyword">self</span>.queue.push(nev);       <span class="comment">// 统一压入队列</span>
+    }
+    <span class="type">Some</span>(<span class="keyword">self</span>.clock)
+}</div>
+  <div class="note">实际网络仿真中，我们没有使用 handler 回调（受 borrow checker 限制），而是采用 SimRunner 集中式分发：Simulator 只负责排序，业务逻辑在外层处理。</div>
+</section>
+
+<section class="slide">
+  <h2>关键设计要点与性能数据</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>设计决策</h3>
+      <ul>
+        <li><strong>整数运算</strong>：全部时间计算使用 u64 纳秒，避免浮点误差</li>
+        <li><strong>软提升</strong>：落后时钟的事件被提升到当前时钟，而非 panic</li>
+        <li><strong>批量取消</strong>：cancel_where O(n) 扫描 + 重建堆，适合 Timeout 清理</li>
+        <li><strong>预分配</strong>：new_with_capacity 减少 Vec 扩容，提升 5–10%</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>实测性能</h3>
+      <div class="code-block">Debug  模式: ~2  M events/sec
+Release模式: ~20 M events/sec
+
+集成测试阈值: > 0.5 M events/sec
+（百万级事件场景）</div>
+      <div class="note">release 模式下 4-ary heap 的缓存友好性得以体现，相比标准库 BinaryHeap 有约 5–15% 的额外提升。</div>
+    </div>
+  </div>
+  <h3>单元测试覆盖</h3>
+  <ul>
+    <li>空队列终止、顺序处理、同时间戳 FIFO、handler 生成事件、run_until 边界、cancel_where 功能</li>
+    <li>EventQueue 独立测试：push/pop 顺序、FIFO 稳定性、批量取消后堆性质保持</li>
+  </ul>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">5</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>

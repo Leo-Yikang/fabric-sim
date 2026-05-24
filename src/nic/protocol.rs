@@ -4,7 +4,7 @@
 //! 而是抽象为 `Protocol` trait。每个 host 持有一个 `Box<dyn Protocol>`，
 //! 由 `SimRunner` 在事件发生时调用对应的生命周期方法。
 
-use crate::network::packet::{FlowId, Packet};
+use crate::network::packet::{FlowId, Packet, SeqNum};
 use crate::EntityId;
 
 // ── RDMA 类型导入 ──
@@ -81,4 +81,8 @@ pub trait Protocol {
     fn qp_state(&self, _qpn: Qpn) -> Option<QpState> { None }
     /// RDMA: 获取已完成的消息（msg_id, qpn, finish_ns）
     fn take_finished_messages(&mut self) -> Vec<(u64, Qpn, u64)> { Vec::new() }
+
+    /// SimRunner 在注入主机内部延迟后，用真实 NIC 出主机时间覆盖协议层
+    /// 记录的 send_times。默认 no-op；需要精确 RTO 的协议应实现此方法。
+    fn update_send_time(&mut self, _flow_id: FlowId, _seq: SeqNum, _nic_depart_time: u64) {}
 }

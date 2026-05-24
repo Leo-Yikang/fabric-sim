@@ -258,7 +258,8 @@ impl RdmaProtocol {
                 )
             };
 
-            // 超时检查
+            // 超时检查：send_times 中记录的是 SimRunner 更新的 Packet.depart_time
+            //（即真实 NIC 出主机时间），因此 RTO 从包真正离开主机开始计时。
             let mut timeout_seqs: Vec<SeqNum> = Vec::new();
             {
                 let f = self.tx_flows.get(&fid).expect("invariant");
@@ -291,6 +292,7 @@ impl RdmaProtocol {
                 to_send.push(pkt);
                 self.stats.packets_retransmitted += 1;
                 self.stats.packets_sent += 1;
+                // 重传包也记录 now，SimRunner 会将其覆盖为真实 NIC 出主机时间
                 send_records.push((seq, now));
                 retx_budget -= 1;
                 if let Some(qp) = self.qps.get_mut(&qpn) {
@@ -336,6 +338,8 @@ impl RdmaProtocol {
                 to_send.push(pkt);
                 self.stats.packets_sent += 1;
                 new_inflight += 1;
+                // 新包记录 now 作为占位；SimRunner::handle_tx_tick() 会读取
+                // pkt.depart_time 并覆盖为真实 NIC 出主机时间，再写回 send_times
                 send_records.push((next_seq, now));
                 msg.next_packet_idx += 1;
                 next_seq += 1;
@@ -691,6 +695,17 @@ impl Protocol for RdmaProtocol {
 
     fn take_finished_messages(&mut self) -> Vec<(u64, Qpn, u64)> {
         std::mem::take(&mut self.finished_messages)
+    }
+
+    fn update_send_time(&mut self, flow_id: FlowId, seq: SeqNum, nic_depart_time: u64) {
+        // SimRunner 在注入主机内部延迟后，用真实 NIC 出主机时间覆盖
+        // 协议层 try_send() 中记录的原始 now，确保 RTO 从包真正离开主机开始计时。
+        // flow_id 唯一标识流，避免多 flow 场景下 seq 冲突导致误写其他流的 send_times。
+        if let Some(flow) = self.tx_flows.get_mut(&flow_id) {
+            if flow.send_times.contains_key(&seq) {
+                flow.send_times.insert(seq, nic_depart_time);
+            }
+        }
     }
 }
 

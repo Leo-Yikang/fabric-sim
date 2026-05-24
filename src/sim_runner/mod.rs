@@ -26,6 +26,17 @@ use crate::EntityId;
 mod host;
 mod switch;
 
+/// P2：NIC 选择策略。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NicSelector {
+    /// 始终使用第一个匹配的上行链路（默认，向后兼容）
+    First,
+    /// 按 flow_id 哈希选择 NIC
+    FlowHash,
+    /// 每个 host 轮转 NIC
+    RoundRobin,
+}
+
 /// 轻量 Slab allocator：用 Vec 做密集存储，O(1) insert/remove，缓存友好。
 struct PacketSlab {
     slots: Vec<Option<Packet>>,
@@ -116,6 +127,20 @@ pub struct SimRunner {
     collectives_per_iteration: Vec<usize>,
     /// P2：Training 级别指标（仅在注入 TrainingJob 时填充）
     pub training_metrics: crate::training::TrainingMetrics,
+    /// 主机内部硬件延迟模型（默认关闭，向后兼容）
+    pub host_delays: crate::network::HostDelayConfig,
+    /// P0：主机侧 DMA 引擎忙到何时（ns），每个 host 一条。
+    /// 后续包的 NIC 出包时间需串行化，体现多流争用同一 DMA engine 的行为。
+    pub host_tx_busy_until: Vec<u64>,
+    /// P3：主机侧累计指标
+    host_total_fixed_overhead_ns: u64,
+    host_total_dma_time_ns: u64,
+    host_total_queue_wait_ns: u64,
+    host_max_queue_depth: u64,
+    /// P2：NIC 选择策略
+    pub nic_selector: NicSelector,
+    /// P2：每个 host 的 round-robin 计数器（用于 NicSelector::RoundRobin）
+    nic_rr_counters: Vec<usize>,
 }
 
 impl SimRunner {
@@ -158,6 +183,14 @@ impl SimRunner {
             training_collectives: Vec::new(),
             collectives_per_iteration: Vec::new(),
             training_metrics: crate::training::TrainingMetrics::default(),
+            host_delays: crate::network::HostDelayConfig::new(n_hosts),
+            host_tx_busy_until: vec![0; n_hosts],
+            host_total_fixed_overhead_ns: 0,
+            host_total_dma_time_ns: 0,
+            host_total_queue_wait_ns: 0,
+            host_max_queue_depth: 0,
+            nic_selector: NicSelector::First,
+            nic_rr_counters: vec![0; n_hosts],
         })
     }
 
@@ -165,6 +198,18 @@ impl SimRunner {
     pub fn with_sampling(mut self, interval_ns: u64) -> Self {
         let n_links = self.topo.links.len();
         self.sampler = TimeSeriesSampler::new(interval_ns, n_links);
+        self
+    }
+
+    /// 启用主机内部硬件延迟模型
+    pub fn with_host_delays(mut self, delays: crate::network::HostDelayConfig) -> Self {
+        self.host_delays = delays;
+        self
+    }
+
+    /// P2：设置 NIC 选择策略
+    pub fn with_nic_selector(mut self, selector: NicSelector) -> Self {
+        self.nic_selector = selector;
         self
     }
 
@@ -422,6 +467,12 @@ impl SimRunner {
         summary.profile.event_histogram = self.event_histogram.clone();
         summary.profile.max_pending_events = self.max_pending;
         summary.profile.max_same_time_burst = self.max_same_time_burst;
+
+        // P3：主机侧指标
+        summary.host_metrics.total_fixed_overhead_ns = self.host_total_fixed_overhead_ns;
+        summary.host_metrics.total_dma_time_ns = self.host_total_dma_time_ns;
+        summary.host_metrics.total_queue_wait_ns = self.host_total_queue_wait_ns;
+        summary.host_metrics.max_queue_depth_ns = self.host_max_queue_depth;
 
         // P2：计算 Training 指标（如果有 training_collectives）
         self.compute_training_metrics();

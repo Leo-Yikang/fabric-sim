@@ -8,7 +8,7 @@
 
 ## 1. 项目定位
 
-项目名称仍为 **Fabric-Sim**，但当前代码已经不再是“只模拟 Fabric”的专用原型，而是一个可插拔协议栈的离散事件网络模拟器。
+项目名称仍为 **Fabric-Sim**，但当前代码已经不再是“只模拟 STrack”的专用原型，而是一个可插拔协议栈的离散事件网络模拟器。
 
 当前已支持：
 
@@ -225,7 +225,7 @@ Dumbbell 拓扑用于构造明确瓶颈链路，适合验证：
 - ECN 标记。
 - 丢包。
 - 重传。
-- TCP/Fabric 在单瓶颈下的差异。
+- TCP/STrack 在单瓶颈下的差异。
 
 ---
 
@@ -251,7 +251,7 @@ pub trait Protocol {
 
 ### 6.2 STrackProtocol
 
-当前 Fabric 实现支持两种模式：
+当前 STrack 实现支持两种模式：
 
 - `Ecmp`：单路径哈希基线，遇 ECN 直接降窗。
 - `Strack`：多路径 spraying，遇 ECN 优先黑名单路径，全部路径不可用时再降窗。
@@ -278,7 +278,7 @@ pub trait Protocol {
 
 ### 6.3 SimpleTcp
 
-`SimpleTcp` 用于验证 `Protocol` trait 的通用性，并提供非 Fabric baseline：
+`SimpleTcp` 用于验证 `Protocol` trait 的通用性，并提供非 STrack baseline：
 
 - 单路径。
 - 累计 ACK。
@@ -430,7 +430,7 @@ cargo run --release --example incast_compare
 当前结果示例：
 
 - ECMP baseline：15/15 流完成，约 `120706` events，墙钟约 `27.95ms`。
-- Fabric：15/15 流完成，约 `127959` events，墙钟约 `21.36ms`。
+- STrack：15/15 流完成，约 `127959` events，墙钟约 `21.36ms`。
 
 端到端墙钟受系统负载影响明显；后续优化应优先使用 Criterion benchmark 比较热路径。
 
@@ -522,14 +522,25 @@ cargo run --release --example incast_compare
 
 - host 是最小通信实体。
 - host 只有一个 uplink。
-- NIC 操作零延迟。
+- **默认 NIC 操作零延迟**，但可通过 `HostDelayConfig` 开启简化延迟注入。
 - 不区分 GPU 内存、CPU 内存、DMA、PCIe。
+
+已有简化延迟注入（默认关闭，向后兼容）：
+
+- `HostDelayModel` 提供 RDMA 零拷贝 / RDMA 带 staging / TCP 内核三种预设。
+- 发送路径注入：DMA 拷贝 + doorbell + PCIe 往返 + 内核栈。
+- 接收路径注入：中断 + CQ poll + DMA 拷贝。
+- 所有时间计算使用整数纳秒（`u64`），与项目全局约定一致。
+- `Packet.depart_time` 在 `SimRunner::handle_tx_tick()` 中被更新为真实 NIC 出主机时间，使协议层 `send_times` 和 RTO 基于一致的时间轴。
+- `Protocol::update_send_time(flow_id, seq, nic_depart_time)` 用 `flow_id` 唯一定位流，
+  避免多 flow 场景下 seq 冲突；当前全部 8 个协议均已实现。
+- 控制包（ACK/NACK）在当前简化模型中不注入发送端延迟（视为接收处理完成后的即时 NIC 发包）。
 
 改进建议：
 
 1. 增加 node 内部拓扑：`GpuId`、`NicId`、`HostId`。
 2. 支持 host 多 uplink / 多 rail。
-3. 增加 NIC serialization queue、DMA delay、PCIe/NVLink 带宽限制。
+3. 将固定延迟参数推进为真实 NIC serialization queue、DMA engine 带宽争用模型。
 4. 支持 intra-node collective 和 inter-node collective 的组合。
 
 ### 10.4 RDMA/RoCE 细节不足
@@ -799,7 +810,7 @@ packet-level DES 的最大问题是事件数量。
 - `src/sim_runner/switch.rs`：switch ingress/egress。
 - `src/network/switch.rs`：FIFO queue、ECN/drop、routing。
 - `src/nic/protocol.rs`：可插拔协议接口。
-- `src/nic/strack.rs`：Fabric/Ecmp 实现。
+- `src/nic/strack.rs`：STrack/Ecmp 实现。
 - `src/nic/tcp.rs`：SimpleTcp 实现。
 - `src/traffic/synthetic.rs`：推荐的通用 workload 入口。
 - `src/viz/`：可视化数据采样。

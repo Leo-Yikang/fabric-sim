@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabric-Sim 项目源码解析总览</title>
+<style>
+  :root {
+    --bg: #0b0f19;
+    --card: #111827;
+    --accent: #38bdf8;
+    --accent2: #818cf8;
+    --accent3: #c084fc;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --border: #1f2937;
+    --hover: #1e293b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: radial-gradient(ellipse at top, #0f172a 0%, #020617 100%);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+  .hero {
+    text-align: center;
+    padding: 80px 20px 50px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 50% 50%, rgba(56,189,248,.08) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero h1 {
+    font-size: 3.2rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 14px;
+    letter-spacing: -1px;
+  }
+  .hero p {
+    color: var(--muted);
+    font-size: 1.15rem;
+    max-width: 620px;
+    margin: 0 auto 30px;
+  }
+  .meta {
+    display: inline-flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .meta span {
+    background: rgba(56,189,248,.08);
+    border: 1px solid rgba(56,189,248,.15);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: .85rem;
+    color: var(--accent);
+  }
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px 24px 60px;
+  }
+  .section-title {
+    font-size: 1.4rem;
+    color: var(--text);
+    margin: 40px 0 20px;
+    padding-left: 12px;
+    border-left: 4px solid var(--accent);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 26px;
+    transition: all .25s ease;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    opacity: 0;
+    transition: opacity .25s;
+  }
+  .card:hover {
+    transform: translateY(-3px);
+    border-color: var(--hover);
+    box-shadow: 0 12px 40px rgba(2,8,20,.45);
+  }
+  .card:hover::after { opacity: 1; }
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .card-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem;
+    background: rgba(56,189,248,.1);
+  }
+  .card h3 {
+    font-size: 1.15rem;
+    color: var(--text);
+  }
+  .card p {
+    color: var(--muted);
+    font-size: .92rem;
+    line-height: 1.6;
+    flex: 1;
+  }
+  .card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .tag {
+    font-size: .78rem;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(129,140,248,.08);
+    color: var(--accent2);
+    border: 1px solid rgba(129,140,248,.12);
+  }
+  .tag.accent { background: rgba(56,189,248,.08); color: var(--accent); border-color: rgba(56,189,248,.12); }
+  .footer {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    font-size: .9rem;
+    border-top: 1px solid var(--border);
+  }
+  .footer a { color: var(--accent); text-decoration: none; }
+  .quick-links {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+  .quick-links a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: .95rem;
+    padding: 8px 18px;
+    border: 1px solid rgba(56,189,248,.2);
+    border-radius: 8px;
+    transition: all .2s;
+  }
+  .quick-links a:hover {
+    background: rgba(56,189,248,.1);
+    border-color: rgba(56,189,248,.4);
+  }
+  @media (max-width: 600px) {
+    .hero h1 { font-size: 2.2rem; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>Fabric-Sim 源码解析总览</h1>
+  <p>AI/ML 集群网络离散事件仿真器（Discrete Event Simulator）核心模块深度剖析<br>逐模块讲解数据结构、算法与代码实现细节</p>
+  <div class="meta">
+    <span>Rust 2021</span>
+    <span>DES 引擎</span>
+    <span>STrack 协议</span>
+    <span>RDMA 抽象</span>
+    <span>3D 可视化</span>
+  </div>
+  <div class="quick-links">
+    <a href="wiki/core.html">🎯 DES 引擎</a>
+    <a href="wiki/network.html">🌐 网络物理层</a>
+    <a href="wiki/nic.html">🔌 协议栈</a>
+    <a href="wiki/sim_runner.html">🚀 主循环</a>
+    <a href="wiki/topology.html">🗺️ 拓扑</a>
+    <a href="wiki/traffic.html">📡 流量</a>
+    <a href="wiki/monitor.html">📊 指标</a>
+    <a href="wiki/viz.html">🎨 可视化</a>
+    <a href="wiki/training.html">🧠 训练 Workload</a>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="section-title">核心引擎与基础设施</div>
+  <div class="grid">
+    <a class="card" href="wiki/core.html">
+      <div class="card-header">
+        <div class="card-icon">🎯</div>
+        <h3>core — DES 引擎</h3>
+      </div>
+      <p>离散事件仿真核心：Event、EventKind、EventQueue（4-ary heap）、Simulator。与网络概念完全解耦，可独立复用。</p>
+      <div class="card-tags">
+        <span class="tag accent">4-ary heap</span>
+        <span class="tag">FIFO 稳定性</span>
+        <span class="tag">整数运算</span>
+      </div>
+    </a>
+    <a class="card" href="wiki/network.html">
+      <div class="card-header">
+        <div class="card-icon">🌐</div>
+        <h3>network — 网络物理层</h3>
+      </div>
+      <p>Packet 结构、单向链路模型、多端口交换机（PFC + ECN + 多优先级队列）、丢包归因统计、主机硬件延迟模型。</p>
+      <div class="card-tags">
+        <span class="tag accent">PFC</span>
+        <span class="tag">ECN</span>
+        <span class="tag">DropCounters</span>
+      </div>
+    </a>
+    <a class="card" href="wiki/sim_runner.html">
+      <div class="card-header">
+        <div class="card-icon">🚀</div>
+        <h3>sim_runner — 端到端主循环</h3>
+      </div>
+      <p>集中式事件分发 orchestrator：PacketSlab 分配器、主机/交换机事件处理、TrainingJob 注入、仿真摘要汇总。</p>
+      <div class="card-tags">
+        <span class="tag accent">Slab</span>
+        <span class="tag">事件分发</span>
+        <span class="tag">Pacing</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section-title">协议、拓扑与流量</div>
+  <div class="grid">
+    <a class="card" href="wiki/nic.html">
+      <div class="card-header">
+        <div class="card-icon">🔌</div>
+        <h3>nic — 可插拔协议栈</h3>
+      </div>
+      <p>Protocol trait 抽象、STrack（Spraying + SACK + 多路径 CC）、SimpleTcp、DCQCN、HPCC、Swift、RDMA 核心抽象。</p>
+      <div class="card-tags">
+        <span class="tag accent">STrack</span>
+        <span class="tag">SACK</span>
+        <span class="tag">RDMA</span>
+      </div>
+    </a>
+    <a class="card" href="wiki/topology.html">
+      <div class="card-header">
+        <div class="card-icon">🗺️</div>
+        <h3>topology — 拓扑生成器</h3>
+      </div>
+      <p>Leaf-Spine、Fat-Tree（k-ary）、Dumbell、Multi-Rail。自动计算 ECMP 路由表与 Entity ID 分配规则。</p>
+      <div class="card-tags">
+        <span class="tag accent">ECMP</span>
+        <span class="tag">Fat-Tree</span>
+        <span class="tag">Leaf-Spine</span>
+      </div>
+    </a>
+    <a class="card" href="wiki/traffic.html">
+      <div class="card-header">
+        <div class="card-icon">📡</div>
+        <h3>traffic — 流量生成器</h3>
+      </div>
+      <p>Incast、AllReduce、AllToAll、Synthetic（流大小分布 × 到达过程 × 通信对模式）、Mix 混合流量。</p>
+      <div class="card-tags">
+        <span class="tag accent">Synthetic</span>
+        <span class="tag">Pareto</span>
+        <span class="tag">Poisson</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section-title">观测、可视化与训练 Workload</div>
+  <div class="grid">
+    <a class="card" href="wiki/monitor.html">
+      <div class="card-header">
+        <div class="card-icon">📊</div>
+        <h3>monitor — 指标采集</h3>
+      </div>
+      <p>FCT 统计（P50/P95/P99）、丢包明细（分原因/逐流/逐端口）、事件直方图、运行剖面、CSV/JSON 导出。</p>
+      <div class="card-tags">
+        <span class="tag accent">FCT</span>
+        <span class="tag">DropCounters</span>
+        <span class="tag">CSV/JSON</span>
+      </div>
+    </a>
+    <a class="card" href="wiki/viz.html">
+      <div class="card-header">
+        <div class="card-icon">🎨</div>
+        <h3>viz — 3D 可视化</h3>
+      </div>
+      <p>时序采样器、VizData 构造、3D 坐标计算。配合 Python Plotly 渲染交互式拓扑动画与热力图。</p>
+      <div class="card-tags">
+        <span class="tag accent">Plotly</span>
+        <span class="tag">TimeSeries</span>
+        <span class="tag">JSON 导出</span>
+      </div>
+    </a>
+    <a class="card" href="wiki/training.html">
+      <div class="card-header">
+        <div class="card-icon">🧠</div>
+        <h3>training — 训练 Workload</h3>
+      </div>
+      <p>CollectiveOp（AllReduce/AllGather/AllToAll）、Ring/Tree/RS+AG 算法、TrainingJob 静态展开为 FlowDesc。</p>
+      <div class="card-tags">
+        <span class="tag accent">AllReduce</span>
+        <span class="tag">Ring</span>
+        <span class="tag">ChunkConfig</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="section-title">项目资料</div>
+  <div class="grid">
+    <a class="card" href="README.md">
+      <div class="card-header">
+        <div class="card-icon">📖</div>
+        <h3>README.md</h3>
+      </div>
+      <p>面向人类的快速开始、项目描述与实测结果汇总。</p>
+    </a>
+    <a class="card" href="AGENTS.md">
+      <div class="card-header">
+        <div class="card-icon">🤖</div>
+        <h3>AGENTS.md</h3>
+      </div>
+      <p>面向 AI 编程助手的项目指南：构建命令、代码风格、测试策略、设计决策。</p>
+    </a>
+    <a class="card" href="docs/design.md">
+      <div class="card-header">
+        <div class="card-icon">📐</div>
+        <h3>docs/design.md</h3>
+      </div>
+      <p>四阶段完整设计文档、数据结构定义、实测数据与待办清单。</p>
+    </a>
+  </div>
+
+</div>
+
+<div class="footer">
+  <p>Fabric-Sim 项目源码解析 · 基于 Rust 2021 Edition · 离散事件网络仿真器</p>
+  <p style="margin-top:8px;font-size:.85rem">所有时间计算使用整数纳秒（u64）· 随机数可复现（rand_pcg + 显式 seed）· release 模式 ~20M events/sec</p>
+</div>
+
+</body>
+</html>

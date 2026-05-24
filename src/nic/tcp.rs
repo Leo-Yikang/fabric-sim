@@ -389,6 +389,15 @@ impl Protocol for SimpleTcp {
         }
         min_deadline
     }
+
+    fn update_send_time(&mut self, flow_id: FlowId, seq: SeqNum, nic_depart_time: u64) {
+        // 用真实 NIC 出主机时间覆盖 send_times，确保 RTO 从包离开主机开始计时。
+        if let Some(f) = self.tx_flows.get_mut(&flow_id) {
+            if f.send_times.contains_key(&seq) {
+                f.send_times.insert(seq, nic_depart_time);
+            }
+        }
+    }
 }
 
 // ------------------------------------------------------------------

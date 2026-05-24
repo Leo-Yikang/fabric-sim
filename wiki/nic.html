@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>nic 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:18px}
+  h3{font-size:1.2rem;color:var(--accent2);margin:16px 0 8px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.02rem}
+  ul{padding-left:24px;margin:8px 0}
+  li{margin:5px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:14px 18px;font-family:"Fira Code","Consolas",monospace;font-size:.88rem;overflow-x:auto;color:#c9d1d9;margin:12px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:8px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:12px 16px;border-radius:0 10px 10px 0;margin:12px 0;color:var(--muted);font-size:.95rem}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">nic 模块</span>
+</div>
+
+<div class="slide-container">
+
+<section class="slide active">
+  <h2>🔌 nic — 可插拔协议栈</h2>
+  <p style="font-size:1.15rem;color:var(--muted);margin-bottom:18px">阶段三核心：Protocol trait 抽象 + STrack / TCP / RDMA 多协议实现</p>
+  <div class="cols">
+    <div class="col">
+      <h3>模块文件</h3>
+      <div class="code-block">src/nic/
+├── protocol.rs      <span class="comment"># Protocol trait + ProtocolStats</span>
+├── strack.rs        <span class="comment"># STrack（Spraying + SACK + 多路径 CC）</span>
+├── tcp.rs           <span class="comment"># SimpleTcp（基线：单路径 + 累计 ACK）</span>
+├── rdma.rs          <span class="comment"># RDMA 核心抽象（QP / PSN / WQE / CQE）</span>
+├── rdma_protocol.rs <span class="comment"># RdmaProtocol 实现</span>
+├── dcqcn.rs         <span class="comment"># DCQCN 拥塞控制</span>
+├── hpcc.rs          <span class="comment"># HPCC</span>
+├── swift.rs         <span class="comment"># Swift</span>
+├── reno.rs          <span class="comment"># TCP Reno</span>
+└── cubic.rs         <span class="comment"># TCP CUBIC</span></div>
+    </div>
+    <div class="col">
+      <h3>设计目标</h3>
+      <ul>
+        <li><strong>统一抽象</strong>：所有协议实现同一 Protocol trait，SimRunner 零修改切换</li>
+        <li><strong>STrack 核心</strong>：Packet Spraying 多路径 + 先切路再降窗 + SACK Bitmap</li>
+        <li><strong>基线对比</strong>：SimpleTcp 提供 ECMP 单路径 + 累计 ACK 的经典行为</li>
+        <li><strong>RDMA 兼容</strong>：QP 状态机、PSN、消息边界，兼容 InfiniBand/RoCEv2 语义</li>
+      </ul>
+      <div class="note">trait 方法不返回 Result，内部不变量违反使用 expect() 即时 panic — 研究模拟器，非生产服务。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>Protocol trait 接口</h2>
+  <p>SimRunner 通过这 10+ 个方法与协议栈交互，涵盖流生命周期、数据收发、统计、RTO、RDMA 扩展。</p>
+  <div class="code-block"><span class="keyword">pub trait</span> <span class="type">Protocol</span> {
+    <span class="keyword">fn</span> <span class="highlight">start_flow</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, flow_id: <span class="type">FlowId</span>, dst: <span class="type">EntityId</span>, total_bytes: <span class="type">u64</span>, now: <span class="type">u64</span>);
+    <span class="keyword">fn</span> <span class="highlight">on_tx_tick</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, now: <span class="type">u64</span>) -> <span class="type">Vec</span>&lt;<span class="type">Packet</span>&gt;;
+    <span class="keyword">fn</span> <span class="highlight">on_rx_data</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, pkt: &<span class="type">Packet</span>, now: <span class="type">u64</span>) -> <span class="type">Vec</span>&lt;<span class="type">Packet</span>&gt;;
+    <span class="keyword">fn</span> <span class="highlight">on_tx_control</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, pkt: &<span class="type">Packet</span>, now: <span class="type">u64</span>);
+    <span class="keyword">fn</span> <span class="highlight">all_flows_done</span>(&<span class="keyword">self</span>) -> <span class="type">bool</span>;
+    <span class="keyword">fn</span> <span class="highlight">take_finished_flows</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>) -> <span class="type">Vec</span>&lt;(<span class="type">FlowId</span>, <span class="type">u64</span>)&gt;;
+    <span class="keyword">fn</span> <span class="highlight">stats</span>(&<span class="keyword">self</span>) -> <span class="type">ProtocolStats</span>;
+    <span class="keyword">fn</span> <span class="highlight">has_pending_work</span>(&<span class="keyword">self</span>) -> <span class="type">bool</span>;
+    <span class="keyword">fn</span> <span class="highlight">next_rto_deadline</span>(&<span class="keyword">self</span>) -> <span class="type">Option</span>&lt;<span class="type">u64</span>&gt;;
+    <span class="keyword">fn</span> <span class="highlight">next_tx_time</span>(&<span class="keyword">self</span>) -> <span class="type">Option</span>&lt;<span class="type">u64</span>&gt; { <span class="type">None</span> }  <span class="comment">// P3 pacing-aware</span>
+    <span class="comment">// RDMA 扩展（默认 no-op）</span>
+    <span class="keyword">fn</span> <span class="highlight">post_send</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, qpn: <span class="type">Qpn</span>, bytes: <span class="type">u64</span>, now: <span class="type">u64</span>) {}
+    <span class="keyword">fn</span> <span class="highlight">post_write</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, qpn: <span class="type">Qpn</span>, bytes: <span class="type">u64</span>, now: <span class="type">u64</span>) {}
+    <span class="keyword">fn</span> <span class="highlight">qp_state</span>(&<span class="keyword">self</span>, qpn: <span class="type">Qpn</span>) -> <span class="type">Option</span>&lt;<span class="type">QpState</span>&gt; { <span class="type">None</span> }
+    <span class="keyword">fn</span> <span class="highlight">update_send_time</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, flow_id: <span class="type">FlowId</span>, seq: <span class="type">SeqNum</span>, nic_depart_time: <span class="type">u64</span>) {}
+}</div>
+  <div class="note">update_send_time 是 P3 关键优化：SimRunner 在注入主机内部 DMA 延迟后，用真实 NIC 出主机时间覆盖协议层记录的 send_times，确保 RTO 从包真正离开主机开始计时。</div>
+</section>
+
+<section class="slide">
+  <h2>STrack 协议：发送端与路径选择</h2>
+  <p>STrack 支持两种模式：Ecmp（单路径流哈希 + 直接降窗）和 STrack（Spraying + 黑名单 + SACK）。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>PathState 与路径选择</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">PathState</span> {
+    path_id: <span class="type">u8</span>,
+    blacklisted_until: <span class="type">u64</span>,  <span class="comment">// 黑名单截止时间</span>
+    ecn_recent: <span class="type">u32</span>,         <span class="comment">// 最近 ECN 计数</span>
+}
+
+<span class="keyword">fn</span> <span class="highlight">pick_path</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, now: <span class="type">u64</span>) -> <span class="type">Option</span>&lt;<span class="type">u8</span>&gt; {
+    <span class="keyword">match</span> <span class="keyword">self</span>.mode {
+        <span class="type">STrackMode</span>::<span class="type">Ecmp</span> => <span class="type">Some</span>(<span class="num">0</span>),
+        <span class="type">STrackMode</span>::<span class="type">Strack</span> => {
+            <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="num">0</span>..n {
+                <span class="keyword">let</span> idx = <span class="keyword">self</span>.paths_rr_cursor;
+                <span class="keyword">self</span>.paths_rr_cursor = (idx + <span class="num">1</span>) % n;
+                <span class="keyword">if</span> <span class="keyword">self</span>.paths[idx <span class="keyword">as</span> <span class="type">usize</span>].is_available(now) {
+                    <span class="keyword">return</span> <span class="type">Some</span>(idx);
+                }
+            }
+            <span class="type">Some</span>(<span class="num">0</span>)  <span class="comment">// 全黑则回退到路径 0</span>
+        }
+    }
+}</div>
+    </div>
+    <div class="col">
+      <h3>try_send 核心逻辑</h3>
+      <div class="code-block"><span class="comment">// 1. 检查 RTO 超时 → 加入重传队列</span>
+<span class="keyword">for</span> (seq, send_t) <span class="keyword">in</span> &f.send_times {
+    <span class="keyword">if</span> now - send_t >= <span class="keyword">self</span>.rto_ns && !retx.contains(seq) {
+        timeout_seqs.push(*seq);
+    }
+}
+
+<span class="comment">// 2. 先重传（预算不超过 cwnd）</span>
+<span class="keyword">while</span> retx_budget > <span class="num">0</span> && !retx.is_empty() {
+    <span class="keyword">let</span> seq = retx.remove(<span class="num">0</span>);
+    <span class="keyword">let</span> path = <span class="keyword">self</span>.pick_path(now)?;
+    pkt.routing_tag = path + <span class="num">1</span>;
+    to_send.push(pkt);
+}
+
+<span class="comment">// 3. 再发新包（受 cwnd 和 in_flight 限制）</span>
+<span class="keyword">while</span> new_inflight < cwnd && next_seq < total {
+    <span class="keyword">let</span> path = <span class="keyword">self</span>.pick_path(now)?;
+    pkt.routing_tag = path.saturating_add(<span class="num">1</span>);
+    to_send.push(pkt);
+    new_inflight += <span class="num">1</span>;
+}</div>
+      <div class="note">发送顺序：超时重传 > 显式重传（NACK） > 新数据。每条包都通过 pick_path 动态选路。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>STrack 接收端：SACK Bitmap 与 NACK</h2>
+  <p>接收端维护 64-bit bitmap（received_bits），实现选择性确认，精确触发缺失包重传。</p>
+  <div class="code-block"><span class="comment">// 收到 Data 包时的处理逻辑</span>
+<span class="keyword">if</span> seq < next {          <span class="comment">// 重复包</span>
+    self.rx_stats.duplicates += <span class="num">1</span>;
+} <span class="keyword">else if</span> seq == next {  <span class="comment">// 按序到达</span>
+    flow.next_expected += <span class="num">1</span>;
+    flow.received_bits >>= <span class="num">1</span>;   <span class="comment">// 右移，检查已缓存的后续包</span>
+    <span class="keyword">while</span> flow.received_bits & <span class="num">1</span> == <span class="num">1</span> {
+        flow.next_expected += <span class="num">1</span>;
+        flow.received_bits >>= <span class="num">1</span>;
+    }
+} <span class="keyword">else</span> {                  <span class="comment">// 乱序包：记录到 bitmap</span>
+    <span class="keyword">let</span> offset = (seq - next) <span class="keyword">as</span> <span class="type">u32</span>;
+    <span class="keyword">if</span> offset < <span class="num">64</span> {
+        <span class="keyword">let</span> bit = <span class="num">1u64</span> << offset;
+        <span class="keyword">if</span> flow.received_bits & bit == <span class="num">0</span> {
+            flow.received_bits |= bit;
+            nack_needed = <span class="keyword">true</span>;  <span class="comment">// 新乱序包 → 发送 NACK</span>
+        }
+    }
+}</div>
+  <div class="cols">
+    <div class="col">
+      <h3>ACK Payload 编码</h3>
+      <div class="code-block"><span class="keyword">let mut</span> ack_payload = <span class="type">Vec</span>::with_capacity(<span class="num">12</span>);
+ack_payload.extend_from_slice(&flow.next_expected.to_le_bytes()); <span class="comment">// 4 bytes</span>
+ack_payload.extend_from_slice(&flow.received_bits.to_le_bytes());   <span class="comment">// 8 bytes</span></div>
+      <p>ACK 同时携带累计确认号和 64-bit SACK bitmap，发送端解析后可精确重传缺失片段。</p>
+    </div>
+    <div class="col">
+      <h3>on_nack 解析与重传</h3>
+      <div class="code-block"><span class="keyword">let</span> base = <span class="type">u32</span>::from_le_bytes([...]);   <span class="comment">// next_expected</span>
+<span class="keyword">let</span> bits = <span class="type">u64</span>::from_le_bytes([...]);     <span class="comment">// received_bits</span>
+<span class="keyword">for</span> i <span class="keyword">in</span> <span class="num">0</span>..<span class="num">64</span> {
+    <span class="keyword">let</span> s = base + i;
+    <span class="keyword">if</span> s >= nack.seq { <span class="keyword">break</span>; }
+    <span class="keyword">let</span> received = (bits >> i) & <span class="num">1</span> == <span class="num">1</span>;
+    <span class="keyword">if</span> !received && !flow.retransmit_queue.contains(&s) {
+        flow.retransmit_queue.push(s);
+    }
+}</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>STrack 拥塞控制：先切路再降窗</h2>
+  <p>这是 STrack 与 ECMP 的核心差异：遇到 ECN 时不立即降窗，而是先把当前路径加入黑名单；只有当所有路径都不可用时才降低 cwnd。</p>
+  <div class="code-block"><span class="keyword">fn</span> <span class="highlight">on_ack</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, ack: &<span class="type">Packet</span>, now: <span class="type">u64</span>) {
+    <span class="keyword">if</span> ack.ecn {
+        <span class="keyword">match</span> <span class="keyword">self</span>.mode {
+            <span class="type">STrackMode</span>::<span class="type">Strack</span> => {
+                <span class="comment">// 1. 将收到 ECN 的路径加入黑名单 50us</span>
+                <span class="keyword">let</span> path = (ack.id <span class="keyword">as</span> <span class="type">u8</span>) % <span class="keyword">self</span>.paths.len() <span class="keyword">as</span> <span class="type">u8</span>;
+                <span class="keyword">self</span>.paths[path <span class="keyword">as</span> <span class="type">usize</span>].blacklisted_until =
+                    now + <span class="keyword">self</span>.blacklist_duration_ns;  <span class="comment">// 50_000 ns</span>
+
+                <span class="comment">// 2. 仅当所有路径都不可用时才降窗</span>
+                <span class="keyword">let</span> avail = <span class="keyword">self</span>.paths.iter().filter(|p| p.is_available(now)).count();
+                <span class="keyword">if</span> avail == <span class="num">0</span> {
+                    flow.cwnd = (flow.cwnd / <span class="num">2</span>).max(<span class="keyword">self</span>.min_cwnd);
+                }
+            }
+            <span class="type">STrackMode</span>::<span class="type">Ecmp</span> => {
+                <span class="comment">// 传统行为：直接降窗</span>
+                flow.cwnd = (flow.cwnd / <span class="num">2</span>).max(<span class="keyword">self</span>.min_cwnd);
+            }
+        }
+    } <span class="keyword">else</span> {
+        <span class="comment">// 正常 ACK：线性增窗（简化的 AIMD）</span>
+        flow.cwnd = (flow.cwnd + <span class="num">1</span>).min(<span class="keyword">self</span>.max_cwnd);
+    }
+}</div>
+  <div class="note">blacklist_duration_ns = 50us，远小于 RTO（100us），允许协议快速尝试其他路径而非保守降速。这是 STrack 在 incast 场景下表现优于 ECMP 的关键。</div>
+</section>
+
+<section class="slide">
+  <h2>SimpleTcp：基线协议实现</h2>
+  <p>验证 Protocol trait 通用性的基线实现，包含完整的 TCP 经典机制。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>核心机制</h3>
+      <ul>
+        <li><strong>单路径</strong>：无 Packet Spraying，无路径黑名单</li>
+        <li><strong>累计 ACK</strong>：无 NACK，无 SACK Bitmap</li>
+        <li><strong>慢启动 + 拥塞避免</strong>：标准 AIMD</li>
+        <li><strong>快速重传</strong>：3 个重复 ACK 触发</li>
+        <li><strong>RTO 超时重传</strong>：100us 固定超时</li>
+        <li><strong>ECN 响应</strong>：收到 ECN 标记 ACK 时乘性降窗</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>快速重传代码</h3>
+      <div class="code-block"><span class="keyword">if</span> acked == flow.un_acked_base {
+    flow.dup_ack_count += <span class="num">1</span>;
+    <span class="keyword">if</span> flow.dup_ack_count == <span class="num">3</span> {
+        <span class="comment">// 第 3 个重复 ACK：快速重传</span>
+        flow.ssthresh = (flow.cwnd/<span class="num">2</span>).max(min_cwnd);
+        flow.cwnd = flow.ssthresh + <span class="num">3</span>;
+        flow.retransmit_queue.push(flow.un_acked_base);
+    } <span class="keyword">else if</span> flow.dup_ack_count > <span class="num">3</span> {
+        flow.cwnd = (flow.cwnd + <span class="num">1</span>).min(max_cwnd);
+    }
+}</div>
+      <div class="note">慢启动阶段 cwnd 指数增长，超过 ssthresh 后进入线性增长的拥塞避免阶段。RTO 后 ssthresh=cwnd/2, cwnd=init_cwnd。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>RDMA 核心抽象</h2>
+  <p>rdma.rs 提供 InfiniBand/RoCEv2 协议栈的基础构件，被 RdmaProtocol 实现使用。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>QP 状态机</h3>
+      <div class="code-block"><span class="keyword">pub enum</span> <span class="type">QpState</span> {
+    <span class="type">Reset</span>, <span class="type">Init</span>, <span class="type">Rtr</span>, <span class="type">Rts</span>, <span class="type">Error</span>
+}
+<span class="comment">// 有效转换: Reset→Init→Rtr→Rts, 任意→Error/Reset</span>
+<span class="keyword">pub fn</span> <span class="highlight">transition</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, new: <span class="type">QpState</span>) -> <span class="type">bool</span> { ... }</div>
+      <h3>消息边界</h3>
+      <div class="code-block"><span class="keyword">pub enum</span> <span class="type">MsgBoundary</span> {
+    <span class="type">Solo</span>=<span class="num">0</span>, <span class="type">First</span>=<span class="num">1</span>, <span class="type">Middle</span>=<span class="num">2</span>, <span class="type">Last</span>=<span class="num">3</span>
+}</div>
+    </div>
+    <div class="col">
+      <h3>QueuePair 结构</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">QueuePair</span> {
+    <span class="keyword">pub</span> qpn: <span class="type">Qpn</span>,
+    <span class="keyword">pub</span> remote_qpn: <span class="type">Qpn</span>,
+    <span class="keyword">pub</span> state: <span class="type">QpState</span>,
+    <span class="keyword">pub</span> next_psn: <span class="type">Psn</span>,      <span class="comment">// 发送端下一个 PSN</span>
+    <span class="keyword">pub</span> e_psn: <span class="type">Psn</span>,         <span class="comment">// 接收端期望的 PSN</span>
+    <span class="keyword">pub</span> send_queue: <span class="type">Vec</span>&lt;<span class="type">Wqe</span>&gt;,
+    <span class="keyword">pub</span> recv_queue: <span class="type">Vec</span>&lt;<span class="type">Wqe</span>&gt;,
+    <span class="keyword">pub</span> pending_reads: <span class="type">HashMap</span>&lt;<span class="type">Psn</span>, <span class="type">Wqe</span>&gt;,
+    <span class="keyword">pub</span> reassembly: <span class="type">HashMap</span>&lt;<span class="type">Psn</span>, <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;&gt;,
+}</div>
+      <div class="note">RdmaOpcode 区分单边操作（Write/Read）与双边操作（Send）。单边操作不需要远端 CPU 参与，体现 RDMA "零拷贝"优势。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>测试覆盖</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>STrack 单元测试</h3>
+      <ul>
+        <li>按序交付、乱序缓存、重复包检测</li>
+        <li>cwnd 限制下发包数量（init_cwnd=16）</li>
+        <li>ACK 推进 un_acked_base 与 in_flight</li>
+        <li>ECN 触发路径黑名单（Strack 模式）</li>
+        <li>ECN 直接降窗（Ecmp 模式）</li>
+        <li>NACK 解析 bitmap 并触发重传</li>
+        <li>RTO 在精确截止时刻触发重传</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>SimpleTcp 单元测试</h3>
+      <ul>
+        <li>接收端按序/乱序交付与 gap fill</li>
+        <li>慢启动 cwnd 指数增长验证</li>
+        <li>拥塞避免每 cwnd 个 ACK 加 1</li>
+        <li>3 个重复 ACK 触发快速重传</li>
+        <li>RTO 后 cwnd 重置为 init_cwnd</li>
+        <li>ECN ACK 导致乘性降窗</li>
+      </ul>
+      <div class="note">所有协议测试均不依赖 SimRunner，直接构造 Packet 调用 on_rx_data / on_tx_control / on_tx_tick，确保协议逻辑可独立验证。</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">8</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>

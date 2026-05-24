@@ -80,7 +80,7 @@ fn has_pending_work(&self) -> bool;
 fn next_rto_deadline(&self) -> Option<u64>;
 ```
 
-- `has_pending_work`：Fabric 实现中遍历活跃流，检查 `(in_flight < cwnd && next_seq < total_packets)` 或 `retransmit_queue` 非空。
+- `has_pending_work`：STrack 实现中遍历活跃流，检查 `(in_flight < cwnd && next_seq < total_packets)` 或 `retransmit_queue` 非空。
 - `next_rto_deadline`：遍历所有 `send_times`，找最小 `send_t + rto_ns`。
 
 ##### 调度逻辑重构（`src/sim_runner/host.rs`）
@@ -228,7 +228,7 @@ DES 的因果一致性要求事件按时间顺序处理，天然串行。当前�
 
 当前结论：数据中心 RDMA 网络机制已有可扩展接口和部分简化行为，但 PFC/Shared Buffer 还不能用于分析真实无损以太网的 head-of-line blocking 或 pause storm。
 
-### 2.3 硬件层次：单 NIC 零延迟过于理想
+### 2.3 硬件层次：可选简化延迟注入，仍缺少完整 GPU/NIC 映射
 
 ```
 当前模型:  Host ──→ NIC ──→ Leaf Switch
@@ -237,10 +237,14 @@ DES 的因果一致性要求事件按时间顺序处理，天然串行。当前�
               多 GPU / 多 NIC / 多 Rail
 ```
 
-- **NVLink/NVSwitch/PCIe 延迟仅有独立模型**：`src/network/host_delay.rs` 提供延迟矩阵，但尚未接入 `SimRunner` 的事件路径。
-- **多 NIC/Rail 仅有拓扑原型**：`src/topology/multi_rail.rs` 可生成多 NIC entity，但当前仍把 NIC 当 host entity，缺少 GPU/Host/NIC 层次和协议选路语义。
-- **NIC 操作仍基本零延迟**：主仿真路径未注入 DMA、PCIe、doorbell、CQ polling 延迟。
-- **无 NUMA 效应**：CPU-GPU-NIC 亲和性影响未建模
+- **已有可选简化主机延迟注入**：`src/network/host_delay.rs` 提供 `HostDelayModel`，支持通过
+  `SimRunner::with_host_delays()` 在发送/接收路径注入 DMA、doorbell、PCIe 往返、CQ poll
+  等简化延迟。默认关闭，向后兼容。全部 8 个协议均已实现 `Protocol::update_send_time()`，
+  `SimRunner::handle_tx_tick()` 通过 `flow_id` 唯一定位流，避免多流场景下的误写。
+- **控制包简化**：ACK/NACK 在当前模型中视为接收处理完成后的即时 NIC 发包，不注入发送端延迟。
+- **仍缺少 GPU/rank/NIC 映射**：当前 host 仍是最小通信实体，不区分 GPU 内存、CPU 内存、DMA 引擎。
+- **多 NIC 选路已有原型**：`NicSelector` 支持 First / FlowHash / RoundRobin 三种策略，通过 `SimRunner::pick_uplink()` 在多个上行链路中选取。当前 `MultirailLeafSpine` 将每个 (host,nic) 建模为独立实体而非同一 host 的多 uplink，真正同 host 多 uplink 场景尚未测试（P2 原型级）。
+- **已有主机侧 DMA 串行化原型**：通过 `host_tx_busy_until[host]` 建模，同一 host 上多个包的 DMA/memcpy 会串行化，产生排队等待和队列深度。仍缺少：PCIe/NIC 多队列、多 DMA engine、GPU/rank/NIC 亲和映射。
 
 ### 2.4 训练语义：Flow 级 vs Job 级
 
@@ -290,7 +294,7 @@ P5 (规模化):
   └─ Parallel DES (LP 分区)
 ```
 
-> 若目标是复现 NSDI'24 Fabric 论文实验并与真实硬件对标，**P1 和 P2 为最关键差距**。
+> 若目标是复现 STrack 论文实验并与真实硬件对标，**P1 和 P2 为最关键差距**。
 
 ---
 

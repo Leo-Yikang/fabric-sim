@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabric-Sim 源码解析 Wiki</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --accent: #38bdf8;
+    --accent2: #818cf8;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  header {
+    text-align: center;
+    padding: 60px 20px 40px;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 {
+    font-size: 3rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 10px;
+  }
+  header p { color: var(--muted); font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 40px 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    transition: transform .2s, box-shadow .2s;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+  }
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 30px rgba(56,189,248,0.12);
+    border-color: var(--accent);
+  }
+  .card h3 { color: var(--accent); font-size: 1.3rem; margin-bottom: 8px; }
+  .card p { color: var(--muted); font-size: 0.95rem; }
+  .tag {
+    display: inline-block;
+    background: rgba(56,189,248,0.12);
+    color: var(--accent);
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    margin-top: 12px;
+    margin-right: 6px;
+  }
+  footer {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  .highlight-bar {
+    height: 4px;
+    width: 50px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    margin-bottom: 16px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fabric-Sim 源码解析 Wiki</h1>
+  <p>AI/ML 集群网络 Fabric 离散事件仿真器核心模块详解<br>逐模块深度剖析数据结构、算法与代码实现</p>
+</header>
+<div class="container">
+  <div class="grid">
+    <a class="card" href="core.html">
+      <div class="highlight-bar"></div>
+      <h3>🎯 core — DES 引擎</h3>
+      <p>离散事件仿真核心：Event、EventQueue（4-ary heap）、Simulator。与网络概念完全解耦，可独立复用。</p>
+      <span class="tag">事件队列</span><span class="tag">4-叉堆</span><span class="tag">FIFO 稳定性</span>
+    </a>
+    <a class="card" href="network.html">
+      <div class="highlight-bar"></div>
+      <h3>🌐 network — 网络物理层</h3>
+      <p>Packet 结构、单向链路模型、多端口交换机（PFC + ECN + 多优先级队列）、丢包归因统计。</p>
+      <span class="tag">Packet</span><span class="tag">Link</span><span class="tag">Switch</span><span class="tag">PFC</span>
+    </a>
+    <a class="card" href="nic.html">
+      <div class="highlight-bar"></div>
+      <h3>🔌 nic — 可插拔协议栈</h3>
+      <p>Protocol trait、STrack（Spraying + SACK）、SimpleTcp、DCQCN、HPCC、Swift、RDMA 协议抽象。</p>
+      <span class="tag">STrack</span><span class="tag">TCP</span><span class="tag">RDMA</span><span class="tag">CC</span>
+    </a>
+    <a class="card" href="sim_runner.html">
+      <div class="highlight-bar"></div>
+      <h3>🚀 sim_runner — 端到端主循环</h3>
+      <p>集中式事件分发、PacketSlab 分配器、主机/交换机事件处理、TrainingJob 注入、仿真摘要。</p>
+      <span class="tag">SimRunner</span><span class="tag">事件分发</span><span class="tag">Slab</span>
+    </a>
+    <a class="card" href="topology.html">
+      <div class="highlight-bar"></div>
+      <h3>🗺️ topology — 拓扑生成器</h3>
+      <p>Leaf-Spine、Fat-Tree（k-ary）、Dumbell、Multi-Rail。自动计算 ECMP 路由表与 Entity ID 分配。</p>
+      <span class="tag">LeafSpine</span><span class="tag">FatTree</span><span class="tag">ECMP</span>
+    </a>
+    <a class="card" href="traffic.html">
+      <div class="highlight-bar"></div>
+      <h3>📡 traffic — 流量生成器</h3>
+      <p>Incast、AllReduce、AllToAll、Synthetic（流大小分布 × 到达过程 × 通信对模式）、Mix 组合。</p>
+      <span class="tag">Synthetic</span><span class="tag">Pareto</span><span class="tag">Poisson</span>
+    </a>
+    <a class="card" href="monitor.html">
+      <div class="highlight-bar"></div>
+      <h3>📊 monitor — 指标采集</h3>
+      <p>FCT 统计（P50/P95/P99）、丢包明细（分原因/逐流/逐端口）、事件直方图、运行剖面、CSV/JSON 导出。</p>
+      <span class="tag">FCT</span><span class="tag">DropCounters</span><span class="tag">CSV</span>
+    </a>
+    <a class="card" href="viz.html">
+      <div class="highlight-bar"></div>
+      <h3>🎨 viz — 3D 可视化</h3>
+      <p>时序采样器、VizData 构造、3D 坐标计算。配合 Python Plotly 渲染交互式拓扑动画。</p>
+      <span class="tag">TimeSeriesSampler</span><span class="tag">Plotly</span>
+    </a>
+    <a class="card" href="training.html">
+      <div class="highlight-bar"></div>
+      <h3>🧠 training — 训练 Workload</h3>
+      <p>CollectiveOp（AllReduce/AllGather/AllToAll）、Ring/Tree 算法、TrainingJob 展开为 FlowDesc。</p>
+      <span class="tag">AllReduce</span><span class="tag">Ring</span><span class="tag">ChunkConfig</span>
+    </a>
+  </div>
+</div>
+<footer>
+  Fabric-Sim 项目源码解析 · 基于 Rust 2021 Edition · 离散事件网络仿真器
+</footer>
+</body>
+</html>

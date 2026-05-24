@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>training 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:18px}
+  h3{font-size:1.2rem;color:var(--accent2);margin:16px 0 8px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.02rem}
+  ul{padding-left:24px;margin:8px 0}
+  li{margin:5px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:14px 18px;font-family:"Fira Code","Consolas",monospace;font-size:.88rem;overflow-x:auto;color:#c9d1d9;margin:12px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:8px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:12px 16px;border-radius:0 10px 10px 0;margin:12px 0;color:var(--muted);font-size:.95rem}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">training 模块</span>
+</div>
+
+<div class="slide-container">
+
+<!-- Slide 1 -->
+<section class="slide active">
+  <h2>🧠 training — 训练 Workload 抽象</h2>
+  <p style="font-size:1.15rem;color:var(--muted);margin-bottom:18px">P2 扩展：将分布式训练中的集合通信展开为底层 FlowDesc，支持 Ring / Tree / RS+AG 算法</p>
+  <div class="cols">
+    <div class="col">
+      <h3>模块文件</h3>
+      <div class="code-block">src/training/
+├── mod.rs   <span class="comment"># TrainingJob / Iteration / CollectiveOp / Metrics</span>
+└── dag.rs   <span class="comment"># TrainingDag / DagNode / PhaseOverlap</span></div>
+      <h3>核心概念</h3>
+      <ul>
+        <li><strong>TrainingJob</strong>：一次完整训练，含多个 Iteration</li>
+        <li><strong>Iteration</strong>：forward + backward + collectives 序列</li>
+        <li><strong>CollectiveOp</strong>：AllReduce / ReduceScatter / AllGather / AllToAll</li>
+        <li><strong>CollectiveAlgorithm</strong>：Ring / ReduceScatterThenAllGather / Tree</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>ChunkConfig：细粒度控制</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">ChunkConfig</span> {
+    <span class="keyword">pub</span> chunk_size_bytes: <span class="type">u64</span>,  <span class="comment">// 0 = 不切分</span>
+    <span class="keyword">pub</span> num_channels: <span class="type">u32</span>,      <span class="comment">// 类似 NCCL channel</span>
+    <span class="keyword">pub</span> pipeline_depth: <span class="type">u32</span>,   <span class="comment">// >1 时 send/recv 重叠</span>
+}</div>
+      <p>通过调整 chunk_size、channel 数和 pipeline 深度，可以模拟 NCCL 风格的带宽优化策略。</p>
+      <div class="note">当前为静态展开：collective 的 flow 开始时间基于逻辑计划，而非前一个 collective 的真实完成时间。后续可扩展为动态调度。</div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 2 -->
+<section class="slide">
+  <h2>CollectiveOp 展开为 FlowDesc</h2>
+  <p>每种算法生成特定的流模式，包含 chunking、channel、pipeline 的完整语义。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>Ring AllReduce</h3>
+      <div class="code-block"><span class="comment">// 2*(N-1) 步，每步每个节点向下一节点发送一个 chunk</span>
+phase_steps = [n-<span class="num">1</span>, n-<span class="num">1</span>]  <span class="comment">// Scatter-Reduce + AllGather</span>
+
+<span class="keyword">for</span> step <span class="keyword">in</span> <span class="num">0</span>..steps {
+    <span class="keyword">for</span> chunk_idx <span class="keyword">in</span> <span class="num">0</span>..chunks {
+        <span class="keyword">let</span> wave = chunk_idx / channels;
+        <span class="keyword">let</span> start = base + (step_offset+step+wave) * spacing;
+        <span class="keyword">for</span> i <span class="keyword">in</span> <span class="num">0</span>..n {
+            <span class="keyword">let</span> src = nodes[i];
+            <span class="keyword">let</span> dst = nodes[(i+<span class="num">1</span>) % n];
+            flows.push(<span class="type">FlowDesc</span>{ flow_id: fid, src, dst, bytes, start_time_ns: start });
+            fid += <span class="num">1</span>;
+        }
+    }
+}</div>
+      <p>step_spacing_ns = 1_000 / pipeline_depth，pipeline 越深，时间间隔越短。</p>
+    </div>
+    <div class="col">
+      <h3>Tree AllReduce（Binary）</h3>
+      <div class="code-block"><span class="comment">// Reduce 阶段：子节点 → 父节点</span>
+stride = <span class="num">1</span>;
+<span class="keyword">while</span> stride < n {
+    <span class="keyword">for</span> i <span class="keyword">in</span> (<span class="num">0</span>..n).step_by(stride*<span class="num">2</span>) {
+        <span class="keyword">let</span> child = nodes[(i+stride) % n];
+        <span class="keyword">let</span> parent = nodes[i];
+        flows.push(<span class="type">FlowDesc</span>{ src: child, dst: parent, ... });
+    }
+    stride *= <span class="num">2</span>;
+}
+
+<span class="comment">// Broadcast 阶段：父节点 → 子节点（反向）</span>
+stride = n / <span class="num">2</span>;
+<span class="keyword">while</span> stride >= <span class="num">1</span> { ... stride /= <span class="num">2</span>; }</div>
+      <p>Tree 算法 flow 数 = 2×(N-1)，远低于 Ring 的 2×(N-1)×N（未切分时），但受限于树的深度和扇出。</p>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 3 -->
+<section class="slide">
+  <h2>TrainingJob 与 Metrics</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Job 展开流程</h3>
+      <div class="code-block"><span class="keyword">let</span> job = <span class="type">TrainingJob</span> {
+    name: <span class="string">"gpt3_small"</span>.to_string(),
+    nodes: (<span class="num">0</span>..<span class="num">8</span>).collect(),
+    iterations: <span class="type">vec</span>![<span class="type">Iteration</span> {
+        iter_id: <span class="num">0</span>,
+        compute_delay_ns: <span class="num">100_000</span>,  <span class="comment">// 100us 计算</span>
+        collectives: <span class="type">vec</span>![<span class="type">CollectiveOp</span> {
+            kind: <span class="type">CollectiveKind</span>::<span class="type">AllReduce</span>,
+            algorithm: <span class="type">CollectiveAlgorithm</span>::<span class="type">Ring</span>,
+            message_bytes: <span class="num">1024</span> * <span class="num">1024</span> * <span class="num">1024</span>, <span class="comment">// 1GB</span>
+            chunk_config: <span class="type">ChunkConfig</span>::default(),
+            nodes: (<span class="num">0</span>..<span class="num">8</span>).collect(),
+        }],
+    }],
+};
+
+<span class="keyword">let</span> plan = job.plan();
+runner.inject_training_job(&job);
+runner.run(max_time);</div>
+    </div>
+    <div class="col">
+      <h3>TrainingMetrics 输出</h3>
+      <div class="code-block">┌─────────── Training 指标 [gpt3_small] ────────────
+│ 总迭代数            10
+│ 完成迭代数          10
+│ Iteration Time 平均 2.345 ms
+│ Iteration Time 最小 2.100 ms
+│ Iteration Time 最大 2.890 ms
+│ Collective  0       2.345 ms  planned=2.000 ms  done=true  iter=0 allreduce-ring
+└──────────────────────────────────────────</div>
+      <p>Metrics 对比 planned vs actual 完成时间，帮助识别网络瓶颈是否拖慢训练。</p>
+      <div class="note">compute_delay_ns 在每个 iteration 的 collective 序列前插入，模拟 forward+backward 的 GPU 计算时间。</div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 4 -->
+<section class="slide">
+  <h2>测试覆盖</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>Collective 测试</h3>
+      <ul>
+        <li>Ring AllReduce flow 数 = 2×(N-1)×N（无 chunking）</li>
+        <li>RS+AG flow 数与 Ring 相同（两阶段各 N-1 步）</li>
+        <li>Tree flow 数 = 2×(N-1)（binary tree）</li>
+        <li>chunk_size 被尊重：所有 flow 的 bytes 等于 chunk_size</li>
+        <li>显式 chunking 增加 flow 数：steps × N × chunks_per_edge</li>
+        <li>channel 重叠：同一 wave 内多个 channel 同时启动</li>
+        <li>pipeline 缩短计划结束时间</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>Job 级测试</h3>
+      <ul>
+        <li>TrainingJob.generate() 产生非空 flow 列表</li>
+        <li>collective boundaries 正确覆盖全部 flow_id</li>
+        <li>compute_delay 推动 iteration 开始时间后移</li>
+        <li>多 iteration、多 collective 边界正确</li>
+      </ul>
+      <div class="note">Training 模块的测试不依赖 SimRunner，仅验证 collective 展开逻辑的正确性（flow 数量、顺序、大小、时间）。</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">4</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>

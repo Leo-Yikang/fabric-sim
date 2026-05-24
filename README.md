@@ -1,4 +1,4 @@
-# Fabric-Sim · AI 集群网络 Fabric 离散事件仿真器
+# Fabric-Sim · AI 集群网络传输协议离散事件仿真器
 
 > 基于 Rust 从零搭建的**可插拔协议离散事件网络模拟器**，面向 AI/ML 集群的多协议传输行为研究。
 > 已内置 **STrack、TCP Reno/CUBIC、DCQCN、HPCC、Swift、RDMA** 等协议，提供丢包归因、ECN、FCT、公平性等多维指标。
@@ -225,7 +225,7 @@ TxTick 不再固定轮询——协议栈通过 `has_pending_work()` / `next_rto_
 
 ## 📚 参考资料
 
-- **STrack 论文**：*"STrack: A Reliable Multipath Transport for AI/ML Clusters"* (Meta, NSDI'24)
+- **STrack 论文**：Le et al., *"STrack: A Reliable Multipath Transport for AI/ML Clusters"* (arXiv:2407.15266, 2024)
 - **CUBIC**：Ha et al., *"CUBIC: a new TCP-friendly high-speed TCP variant"* (SIGOPS 2008)
 - **DCQCN**：Zhu et al., *"Congestion control for large-scale RDMA deployments"* (SIGCOMM 2015)
 - **HPCC**：Li et al., *"HPCC: High Precision Congestion Control"* (SIGCOMM 2019)

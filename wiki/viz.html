@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>viz 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:18px}
+  h3{font-size:1.2rem;color:var(--accent2);margin:16px 0 8px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.02rem}
+  ul{padding-left:24px;margin:8px 0}
+  li{margin:5px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:14px 18px;font-family:"Fira Code","Consolas",monospace;font-size:.88rem;overflow-x:auto;color:#c9d1d9;margin:12px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:8px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:12px 16px;border-radius:0 10px 10px 0;margin:12px 0;color:var(--muted);font-size:.95rem}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">viz 模块</span>
+</div>
+
+<div class="slide-container">
+
+<!-- Slide 1 -->
+<section class="slide active">
+  <h2>🎨 viz — 3D 可视化数据采集</h2>
+  <p style="font-size:1.15rem;color:var(--muted);margin-bottom:18px">定时采样链路利用率与队列深度，导出 JSON 供 Python Plotly 渲染交互式拓扑动画</p>
+  <div class="cols">
+    <div class="col">
+      <h3>模块文件</h3>
+      <div class="code-block">src/viz/
+├── mod.rs       <span class="comment"># TopoKind + build_viz_data()</span>
+├── data.rs      <span class="comment"># VizData / VizNode / VizLink / VizFrame</span>
+├── position.rs  <span class="comment"># 3D 坐标计算（Dumbell / LeafSpine）</span>
+└── sampler.rs   <span class="comment"># TimeSeriesSampler 定时采样器</span></div>
+    </div>
+    <div class="col">
+      <h3>使用流程</h3>
+      <div class="code-block"><span class="comment">// 1. 启用采样</span>
+<span class="keyword">let</span> runner = <span class="type">SimRunner</span>::new(topo, name, make_proto)?
+    .with_sampling(<span class="num">100_000</span>);  <span class="comment">// 每 100us 采样一次</span>
+
+<span class="comment">// 2. 运行仿真</span>
+runner.run(max_time);
+
+<span class="comment">// 3. 构造 VizData 并导出 JSON</span>
+<span class="keyword">let</span> summary = runner.summarize();
+<span class="keyword">let</span> viz = viz::build_viz_data(&runner.topo, summary,
+    runner.sampler.frames, &<span class="type">TopoKind</span>::<span class="type">LeafSpine</span>{...});
+std::fs::write(<span class="string">"viz_data.json"</span>,
+    serde_json::to_string_pretty(&viz)?)?;
+
+<span class="comment">// 4. Python 渲染</span>
+python3 scripts/visualize_3d.py output/viz_data.json</div>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 2 -->
+<section class="slide">
+  <h2>TimeSeriesSampler 与数据结构</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>采样器实现</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">TimeSeriesSampler</span> {
+    interval_ns: <span class="type">u64</span>,
+    next_sample_ns: <span class="type">u64</span>,
+    prev_bytes: <span class="type">Vec</span>&lt;<span class="type">u64</span>&gt;,    <span class="comment">// 上一次的 link_bytes_sent</span>
+    <span class="keyword">pub</span> frames: <span class="type">Vec</span>&lt;<span class="type">VizFrame</span>&gt;,
+}
+
+<span class="keyword">pub fn</span> <span class="highlight">maybe_sample</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, now: <span class="type">u64</span>, bytes: &[<span class="type">u64</span>], topo: &<span class="type">Topology</span>) {
+    <span class="keyword">if</span> now < <span class="keyword">self</span>.next_sample_ns { <span class="keyword">return</span>; }
+    <span class="comment">// 利用率 = delta_bytes / (bw * interval)</span>
+    ...
+    <span class="keyword">self</span>.frames.push(frame);
+    <span class="keyword">self</span>.next_sample_ns += <span class="keyword">self</span>.interval_ns;
+}</div>
+    </div>
+    <div class="col">
+      <h3>VizFrame 结构</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">VizFrame</span> {
+    <span class="keyword">pub</span> time_ns: <span class="type">u64</span>,
+    <span class="keyword">pub</span> links: <span class="type">Vec</span>&lt;<span class="type">LinkSnapshot</span>&gt;,
+}
+
+<span class="keyword">pub struct</span> <span class="type">LinkSnapshot</span> {
+    <span class="keyword">pub</span> utilization: <span class="type">f64</span>,           <span class="comment">// [0, 1]</span>
+    <span class="keyword">pub</span> queue_depth_bytes: <span class="type">u32</span>,   <span class="comment">// 交换机端口队列深度</span>
+}</div>
+      <p>利用率基于累积字节差值计算：delta / (bandwidth_bps × interval_ns / 1e9 / 8)。</p>
+    </div>
+  </div>
+  <div class="note">采样间隔建议设为 50–200μs。过短会增加内存消耗和 JSON 体积；过长会丢失 transient 拥塞细节。</div>
+</section>
+
+<!-- Slide 3 -->
+<section class="slide">
+  <h2>3D 坐标计算</h2>
+  <p>position.rs 根据 TopoKind 为每个节点分配 3D 坐标，使 Plotly 渲染时拓扑结构清晰可辨。</p>
+  <div class="code-block"><span class="keyword">pub enum</span> <span class="type">TopoKind</span> {
+    <span class="type">Dumbell</span> { hosts_per_side: <span class="type">u32</span> },
+    <span class="type">LeafSpine</span> { n_leaf: <span class="type">u32</span>, n_spine: <span class="type">u32</span>, hosts_per_leaf: <span class="type">u32</span> },
+}
+
+<span class="comment">// LeafSpine 坐标策略</span>
+<span class="comment">// - hosts：分布在 leaf 下方，Z 轴分层</span>
+<span class="comment">// - leaves：中间层，X 轴均匀分布</span>
+<span class="comment">// - spines：顶层，X 轴覆盖 leaves 范围</span></div>
+  <div class="note">目前支持 Dumbell 和 LeafSpine 两种拓扑的坐标计算。Fat-Tree 的 3D 坐标扩展较为直接：edge/agg/core 分别对应三层 Z 平面。</div>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">3</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>

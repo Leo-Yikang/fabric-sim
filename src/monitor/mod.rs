@@ -152,6 +152,19 @@ pub struct FlowDropDetail {
     pub no_route: u64,
 }
 
+/// P3：主机侧硬件延迟指标
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+pub struct HostMetrics {
+    /// 累计固定开销（doorbell + PCIe + kernel_stack），ns
+    pub total_fixed_overhead_ns: u64,
+    /// 累计 DMA/memcpy 占用时间，ns
+    pub total_dma_time_ns: u64,
+    /// 累计主机侧排队等待时间，ns
+    pub total_queue_wait_ns: u64,
+    /// 主机 DMA 引擎最大排队深度（ns）
+    pub max_queue_depth_ns: u64,
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SimSummary {
     pub mode: String,            // "ecmp" 或 "strack"
@@ -172,6 +185,8 @@ pub struct SimSummary {
     pub max_queue_depth_bytes: u32,
     /// P1 可观测性：运行剖面
     pub profile: RunProfile,
+    /// P3：主机侧硬件延迟指标
+    pub host_metrics: HostMetrics,
 }
 
 impl SimSummary {
@@ -219,18 +234,26 @@ impl SimSummary {
         println!("│ 最大 pending 长度   {}", self.profile.max_pending_events);
         println!("│ 最大同时间戳 burst  {}", self.profile.max_same_time_burst);
         self.profile.event_histogram.pretty_print();
+        let hm = &self.host_metrics;
+        if hm.total_fixed_overhead_ns > 0 || hm.total_dma_time_ns > 0 {
+            println!("│ ── 主机侧指标 ──");
+            println!("│ 固定开销累计        {:.3} μs", hm.total_fixed_overhead_ns as f64 / 1e3);
+            println!("│ DMA 时间累计        {:.3} μs", hm.total_dma_time_ns as f64 / 1e3);
+            println!("│ 排队等待累计        {:.3} μs", hm.total_queue_wait_ns as f64 / 1e3);
+            println!("│ DMA 最大排队深度    {:.3} μs", hm.max_queue_depth_ns as f64 / 1e3);
+        }
         println!("└──────────────────────────────────────────");
     }
 
     /// CSV 表头（便于批量写入文件）
     pub fn csv_header() -> &'static str {
-        "mode,total_flows,completed_flows,total_time_ms,packets_sent,packets_retransmitted,ecn_marks,drops,drops_buffer_full,drops_no_route,fct_p50_us,fct_p95_us,fct_p99_us,fct_max_us,avg_link_util_pct,max_queue_depth_bytes"
+        "mode,total_flows,completed_flows,total_time_ms,packets_sent,packets_retransmitted,ecn_marks,drops,drops_buffer_full,drops_no_route,fct_p50_us,fct_p95_us,fct_p99_us,fct_max_us,avg_link_util_pct,max_queue_depth_bytes,host_fixed_us,host_dma_us,host_queue_wait_us,host_max_depth_us"
     }
 
     /// 转为 CSV 单行（不含换行符）
     pub fn to_csv_row(&self) -> String {
         format!(
-            "{},{},{},{:.3},{},{},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.1},{}",
+            "{},{},{},{:.3},{},{},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.1},{},{:.3},{:.3},{:.3},{:.3}",
             self.mode,
             self.total_flows,
             self.completed_flows,
@@ -247,6 +270,10 @@ impl SimSummary {
             self.fct_max_ns as f64 / 1e3,
             self.avg_link_util * 100.0,
             self.max_queue_depth_bytes,
+            self.host_metrics.total_fixed_overhead_ns as f64 / 1e3,
+            self.host_metrics.total_dma_time_ns as f64 / 1e3,
+            self.host_metrics.total_queue_wait_ns as f64 / 1e3,
+            self.host_metrics.max_queue_depth_ns as f64 / 1e3,
         )
     }
 

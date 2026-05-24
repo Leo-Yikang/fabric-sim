@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>network 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:20px}
+  h3{font-size:1.3rem;color:var(--accent2);margin:18px 0 10px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.05rem}
+  ul{padding-left:24px;margin:10px 0}
+  li{margin:6px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:16px 20px;font-family:"Fira Code","Consolas",monospace;font-size:.9rem;overflow-x:auto;color:#c9d1d9;margin:14px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:10px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:14px 18px;border-radius:0 10px 10px 0;margin:14px 0;color:var(--muted)}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.95rem}
+  th,td{border:1px solid var(--border);padding:10px 14px;text-align:left}
+  th{background:rgba(56,189,248,.1);color:var(--accent)}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">network 模块</span>
+</div>
+
+<div class="slide-container">
+
+<section class="slide active">
+  <h2>🌐 network — 网络物理层</h2>
+  <p style="font-size:1.2rem;color:var(--muted);margin-bottom:24px">阶段二核心：Packet / Link / Switch / Drop 四大构件，构建可模拟的物理网络</p>
+  <div class="cols">
+    <div class="col">
+      <h3>子模块划分</h3>
+      <table>
+        <tr><th>文件</th><th>职责</th></tr>
+        <tr><td>packet.rs</td><td>Packet 结构、MTU、PacketKind、RDMA 扩展字段</td></tr>
+        <tr><td>link.rs</td><td>单向链路、序列化延迟（整数运算）、LinkRegistry</td></tr>
+        <tr><td>switch.rs</td><td>多端口交换机、优先级队列、PFC、ECN、路由</td></tr>
+        <tr><td>drop.rs</td><td>丢包原因枚举、逐流/逐端口/分原因统计</td></tr>
+        <tr><td>host_delay.rs</td><td>主机内部硬件延迟模型（NVLink/PCIe/DMA）</td></tr>
+      </table>
+    </div>
+    <div class="col">
+      <h3>核心设计原则</h3>
+      <ul>
+        <li><strong>单向链路</strong>：一条物理链路 = 两条单向 Link，发送与接收独立建模</li>
+        <li><strong>整数运算</strong>：序列化延迟 (bytes * 8 * 1e9) / bw_bps，全 u64 避免浮点</li>
+        <li><strong>最小公共包</strong>：Packet 只保留各协议共有的最小字段，扩展通过 payload 编码</li>
+        <li><strong>多优先级</strong>：交换机端口支持 NUM_PRIORITIES=2 个队列（0=高优先级）</li>
+      </ul>
+      <div class="note">PFC（Priority Flow Control）在交换机端口队列超过阈值时向上游发送 pause 帧，模拟真实无损以太网行为。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>Packet 结构与 RDMA 扩展</h2>
+  <p>Packet 第一字段始终是 id，事件流转时只携带 packet_id 避免大量拷贝。</p>
+  <div class="code-block"><span class="keyword">pub struct</span> <span class="type">Packet</span> {
+    <span class="keyword">pub</span> id: <span class="type">PacketId</span>,            <span class="comment">// slab 索引（SimRunner 分配）</span>
+    <span class="keyword">pub</span> kind: <span class="type">PacketKind</span>,         <span class="comment">// Data | Control(u8)</span>
+    <span class="keyword">pub</span> flow_id: <span class="type">FlowId</span>,
+    <span class="keyword">pub</span> seq: <span class="type">SeqNum</span>,
+    <span class="keyword">pub</span> size: <span class="type">u32</span>,               <span class="comment">// Data 默认 MTU=1024B, Control=64B</span>
+    <span class="keyword">pub</span> src, dst: <span class="type">EntityId</span>,
+    <span class="keyword">pub</span> ecn: <span class="type">bool</span>,                <span class="comment">// 拥塞标记（交换机 ingress 打标）</span>
+    <span class="keyword">pub</span> routing_tag: <span class="type">u8</span>,        <span class="comment">// 路径选择 / 优先级编码</span>
+    <span class="keyword">pub</span> payload: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,       <span class="comment">// 协议扩展数据（如 SACK bitmap）</span>
+    <span class="keyword">pub</span> depart_time: <span class="type">u64</span>,       <span class="comment">// 真实 NIC 出主机时间（用于 RTO）</span>
+    <span class="keyword">pub</span> trace_id: <span class="type">PacketId</span>,     <span class="comment">// 全局唯一追踪 ID（P1 可观测性）</span>
+    <span class="comment">// RDMA 扩展字段（向下兼容：非 RDMA 包全为 0）</span>
+    <span class="keyword">pub</span> qpn: <span class="type">u32</span>, psn: <span class="type">u32</span>,
+    <span class="keyword">pub</span> msg_flags: <span class="type">u8</span>,
+    <span class="keyword">pub</span> rdma_opcode: <span class="type">u8</span>,
+}</div>
+  <div class="note">routing_tag 的双重用意：低 bits 用于 ECMP/Spraying 路径选择（1-based 索引）；≥128 表示高优先级（映射到交换机端口的高优先级队列）。</div>
+</section>
+
+<section class="slide">
+  <h2>Link 模型：序列化延迟</h2>
+  <p>链路是单向的，用 link_busy_until: Vec&lt;u64&gt; 数组建模"一次只能发一个包"的物理约束。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>Link 结构</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">Link</span> {
+    <span class="keyword">pub</span> id: <span class="type">LinkId</span>,
+    <span class="keyword">pub</span> from: <span class="type">EntityId</span>,
+    <span class="keyword">pub</span> to: <span class="type">EntityId</span>,
+    <span class="keyword">pub</span> bandwidth_bps: <span class="type">u64</span>,    <span class="comment">// 如 100_000_000_000 = 100Gbps</span>
+    <span class="keyword">pub</span> prop_delay_ns: <span class="type">u64</span>,     <span class="comment">// 传播延迟（ns）</span>
+}
+
+<span class="comment">// 整数运算，零浮点</span>
+<span class="keyword">pub fn</span> <span class="highlight">serialization_ns</span>(&<span class="keyword">self</span>, size_bytes: <span class="type">u32</span>) -> <span class="type">u64</span> {
+    (size_bytes <span class="keyword">as</span> <span class="type">u64</span> * <span class="num">8</span> * <span class="num">1_000_000_000</span>) / <span class="keyword">self</span>.bandwidth_bps
+}</div>
+    </div>
+    <div class="col">
+      <h3>LinkRegistry</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">LinkRegistry</span> {
+    links: <span class="type">Vec</span>&lt;<span class="type">Link</span>&gt;,
+}
+
+<span class="keyword">pub fn</span> <span class="highlight">add</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, <span class="keyword">mut</span> link: <span class="type">Link</span>) -> <span class="type">LinkId</span> {
+    <span class="keyword">let</span> id = <span class="keyword">self</span>.links.len() <span class="keyword">as</span> <span class="type">LinkId</span>;
+    link.id = id;
+    <span class="keyword">self</span>.links.push(link);
+    id
+}
+
+<span class="comment">// O(1) 索引</span>
+<span class="keyword">pub fn</span> <span class="highlight">get</span>(&<span class="keyword">self</span>, id: <span class="type">LinkId</span>) -> &<span class="type">Link</span> {
+    &<span class="keyword">self</span>.links[id <span class="keyword">as</span> <span class="type">usize</span>]
+}</div>
+      <div class="note">Dense array indexing 替代 HashMap，缓存友好且零哈希开销。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>Switch 模型：Ingress / Egress / PFC</h2>
+  <p>交换机是多端口设备，每个端口包含 NUM_PRIORITIES=2 个 FIFO 子队列。核心行为在 ingress() 中完成。</p>
+  <div class="code-block"><span class="keyword">pub fn</span> <span class="highlight">ingress</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, <span class="keyword">mut</span> pkt: <span class="type">Packet</span>, hash_key: <span class="type">u32</span>, now: <span class="type">u64</span>) -> (<span class="type">Option</span>&lt;<span class="type">PortId</span>&gt;, <span class="type">bool</span>) {
+    <span class="comment">// 1. 路由查找</span>
+    <span class="keyword">let</span> ports = <span class="keyword">self</span>.routing.ports_for(pkt.dst)?;
+    <span class="keyword">let</span> chosen = <span class="keyword">if</span> pkt.routing_tag > <span class="num">0</span> {
+        pkt.routing_tag - <span class="num">1</span>        <span class="comment">// STrack 显式指定路径</span>
+    } <span class="keyword">else</span> {
+        hash_key <span class="keyword">as</span> <span class="type">usize</span> % ports.len()  <span class="comment">// ECMP 流哈希</span>
+    };
+
+    <span class="comment">// 2. Buffer 满 → 丢包（记录原因、端口、流、时间）</span>
+    <span class="keyword">if</span> port.queue_bytes + pkt_size > <span class="keyword">self</span>.buffer_max_bytes {
+        <span class="keyword">self</span>.drop_counters.record(<span class="type">DropReason</span>::<span class="type">BufferFull</span>, ...);
+        <span class="keyword">return</span> (<span class="type">Some</span>(chosen), <span class="keyword">true</span>);
+    }
+
+    <span class="comment">// 3. ECN 阈值 → 打标</span>
+    <span class="keyword">if</span> port.queue_bytes + pkt_size > <span class="keyword">self</span>.ecn_threshold_bytes {
+        pkt.ecn = <span class="keyword">true</span>;
+        <span class="keyword">self</span>.ecn_marks += <span class="num">1</span>;
+    }
+
+    <span class="comment">// 4. 根据 routing_tag 选择优先级并入队</span>
+    <span class="keyword">let</span> priority = <span class="keyword">if</span> pkt.routing_tag >= <span class="num">128</span> { <span class="type">HIGH_PRIORITY</span> } <span class="keyword">else</span> { <span class="type">LOW_PRIORITY</span> };
+    port.enqueue_priority(pkt, priority);
+
+    <span class="comment">// 5. PFC：检查是否触发 pause</span>
+    <span class="keyword">if</span> port.check_pfc(priority) { <span class="keyword">self</span>.pfc_pause_sent += <span class="num">1</span>; }
+    (<span class="type">Some</span>(chosen), <span class="keyword">false</span>)
+}</div>
+  <div class="note">Egress 由 SimRunner 的 try_egress() 驱动：端口空闲时 dequeue，否则调度 PacketDepart 事件在未来重试。这实现了物理链路的串行化。</div>
+</section>
+
+<section class="slide">
+  <h2>丢包归因与主机延迟模型</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>DropCounters：多维统计</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">DropCounters</span> {
+    <span class="keyword">pub</span> by_reason: [<span class="type">u64</span>; <span class="num">4</span>],      <span class="comment">// NoRoute / BufferFull / Ttl / Other</span>
+    <span class="keyword">pub</span> by_port: <span class="type">Vec</span>&lt;<span class="type">u64</span>&gt;,        <span class="comment">// 逐端口</span>
+    <span class="keyword">pub</span> total: <span class="type">u64</span>,
+    <span class="keyword">pub</span> per_flow: <span class="type">HashMap</span>&lt;<span class="type">FlowId</span>, <span class="type">PerFlowDrops</span>&gt;,
+    <span class="keyword">pub</span> events: <span class="type">Vec</span>&lt;<span class="type">DropEvent</span>&gt;,   <span class="comment">// 详细日志（可选）</span>
+}</div>
+      <p>替代了早期简单的 drops: u64，支持诊断"哪条流在哪台交换机的哪个端口因何丢包"。</p>
+    </div>
+    <div class="col">
+      <h3>HostDelayModel：GPU → NIC 延迟</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">HostDelayModel</span> {
+    dma_bw_bps: <span class="type">u64</span>,         <span class="comment">// 0 = 零拷贝（RDMA）</span>
+    doorbell_ns: <span class="type">u64</span>,       <span class="comment">// ~200ns</span>
+    pcie_roundtrip_ns: <span class="type">u64</span>, <span class="comment">// ~500ns</span>
+    kernel_stack_ns: <span class="type">u64</span>,  <span class="comment">// TCP 场景 ~2μs</span>
+    memcpy_bw_bps: <span class="type">u64</span>,    <span class="comment">// 用户态→内核拷贝带宽</span>
+    rx_interrupt_ns: <span class="type">u64</span>,  <span class="comment">// 接收中断</span>
+    cq_poll_ns: <span class="type">u64</span>,       <span class="comment">// CQE 轮询</span>
+}</div>
+      <p>提供三种预设：rdma_zerocopy()、rdma_with_staging()、tcp_kernel()。</p>
+      <div class="note">主机延迟通过 SimRunner 的 host_tx_busy_until 实现 DMA 引擎串行化，多流争用同一 DMA 引擎时会排队。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>测试覆盖与关键断言</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>switch.rs 单元测试</h3>
+      <ul>
+        <li>no_route_drops：无路由时正确丢包并计数</li>
+        <li>ecn_marks_above_threshold：队列超阈值后第二个包被打 ECN 标记</li>
+        <li>drops_when_buffer_full：Buffer 满后后续包被丢弃</li>
+        <li>ecmp_hash_distributes：300 个包均匀分散到 3 个端口</li>
+        <li>routing_tag_overrides_ecmp：显式 routing_tag 可覆盖哈希</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>link.rs / drop.rs 测试</h3>
+      <ul>
+        <li>serialization_at_100gbps：1024B @ 100Gbps ≈ 81.92 ns</li>
+        <li>arrive_time_includes_propagation：总延迟 = serialization + prop_delay</li>
+        <li>DropCounters：record 后按原因、端口、流三维统计正确</li>
+      </ul>
+      <div class="note">所有测试均在模块内部以 #[cfg(test)] 组织，cargo test --release 时一并执行。</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">6</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>

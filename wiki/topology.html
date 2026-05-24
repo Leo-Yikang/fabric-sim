@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>topology 模块详解 — Fabric-Sim Wiki</title>
+<style>
+  :root{ --bg:#0f172a; --slide:#1e293b; --accent:#38bdf8; --accent2:#818cf8; --text:#e2e8f0; --muted:#94a3b8; --code:#0b1220; --border:#334155; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#0b1220;border-bottom:1px solid var(--border)}
+  .topbar a{color:var(--accent);text-decoration:none;font-weight:600}
+  .progress{flex:1;height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden}
+  .progress-inner{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s}
+  .slide-container{flex:1;display:flex;align-items:center;justify-content:center;padding:30px;position:relative}
+  .slide{background:var(--slide);border:1px solid var(--border);border-radius:18px;width:100%;max-width:1100px;height:100%;max-height:720px;padding:48px 60px;overflow-y:auto;display:none;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .slide.active{display:flex}
+  h2{font-size:2rem;color:var(--accent);margin-bottom:18px}
+  h3{font-size:1.2rem;color:var(--accent2);margin:16px 0 8px}
+  p,li{color:var(--text);line-height:1.7;font-size:1.02rem}
+  ul{padding-left:24px;margin:8px 0}
+  li{margin:5px 0}
+  .code-block{background:var(--code);border:1px solid var(--border);border-radius:10px;padding:14px 18px;font-family:"Fira Code","Consolas",monospace;font-size:.88rem;overflow-x:auto;color:#c9d1d9;margin:12px 0;white-space:pre}
+  .highlight{color:#7ee787}.keyword{color:#ff7b72}.type{color:#79c0ff}.comment{color:#8b949e}.string{color:#a5d6ff}.num{color:#79c0ff}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:8px}
+  .col{display:flex;flex-direction:column}
+  .note{background:rgba(56,189,248,.08);border-left:4px solid var(--accent);padding:12px 16px;border-radius:0 10px 10px 0;margin:12px 0;color:var(--muted);font-size:.95rem}
+  .nav{position:fixed;bottom:24px;right:24px;display:flex;gap:10px}
+  .nav button{background:var(--slide);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:8px;cursor:pointer;font-size:.95rem}
+  .nav button:hover{background:var(--border)}
+  .page-num{position:fixed;bottom:24px;left:24px;color:var(--muted);font-size:.9rem}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}.slide{padding:28px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="index.html">← 返回 Wiki 首页</a>
+  <div class="progress"><div class="progress-inner" id="progress"></div></div>
+  <span style="color:var(--muted);font-size:.9rem">topology 模块</span>
+</div>
+
+<div class="slide-container">
+
+<section class="slide active">
+  <h2>🗺️ topology — 拓扑生成器</h2>
+  <p style="font-size:1.15rem;color:var(--muted);margin-bottom:18px">阶段二：自动生成 Leaf-Spine、Fat-Tree、Dumbell 等经典拓扑，含完整路由表</p>
+  <div class="cols">
+    <div class="col">
+      <h3>模块结构</h3>
+      <div class="code-block">src/topology/
+├── mod.rs          <span class="comment"># Topology / HostUplink 结构</span>
+├── leaf_spine.rs   <span class="comment"># 两层 Leaf-Spine（典型 AI 集群）</span>
+├── fat_tree.rs     <span class="comment"># k-ary 三层 Fat-Tree</span>
+├── dumbell.rs      <span class="comment"># Dumbbell（经典 CC 实验）</span>
+└── multi_rail.rs   <span class="comment"># Multi-Rail Leaf-Spine</span></div>
+    </div>
+    <div class="col">
+      <h3>Topology 结构</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">Topology</span> {
+    <span class="keyword">pub</span> hosts: <span class="type">Vec</span>&lt;<span class="type">EntityId</span>&gt;,           <span class="comment">// 0 .. n_hosts-1</span>
+    <span class="keyword">pub</span> switches: <span class="type">Vec</span>&lt;<span class="type">Switch</span>&gt;,        <span class="comment">// 接在 host 之后连续编号</span>
+    <span class="keyword">pub</span> links: <span class="type">LinkRegistry</span>,        <span class="comment">// 全部单向链路</span>
+    <span class="keyword">pub</span> host_uplink: <span class="type">Vec</span>&lt;<span class="type">HostUplink</span>&gt;, <span class="comment">// host → edge_switch 映射</span>
+}</div>
+      <div class="note">EntityId 编号规则是全局约定：hosts 从 0 开始连续，switches 紧随其后。SimRunner 通过判断 target < hosts.len() 区分主机和交换机。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>Leaf-Spine 拓扑</h2>
+  <p>两层结构：n_leaf 个 Leaf 交换机，每个下挂 hosts_per_leaf 台主机；n_spine 个 Spine 与每个 Leaf 全互联。</p>
+  <div class="cols">
+    <div class="col">
+      <h3>构建流程</h3>
+      <div class="code-block"><span class="comment">// Entity ID 分配</span>
+hosts:    <span class="num">0</span> .. n_leaf*hosts_per_leaf
+leaves:   leaf_start .. leaf_start + n_leaf
+spines:   spine_start .. spine_start + n_spine
+
+<span class="comment">// 1. 主机 ↔ Leaf（双向链路）</span>
+<span class="keyword">for</span> leaf_i <span class="keyword">in</span> <span class="num">0</span>..n_leaf {
+    <span class="keyword">for</span> h <span class="keyword">in</span> <span class="num">0</span>..hosts_per_leaf {
+        <span class="keyword">let</span> host_id = leaf_i * hosts_per_leaf + h;
+        <span class="comment">// Leaf 上添加直连 host 的出端口 + 路由</span>
+        leaf_sw.routing.add(host_id, port);
+    }
+}
+
+<span class="comment">// 2. Leaf ↔ Spine（全互联）</span>
+<span class="keyword">for</span> leaf_i <span class="keyword">in</span> <span class="num">0</span>..n_leaf {
+    <span class="keyword">for</span> spine_j <span class="keyword">in</span> <span class="num">0</span>..n_spine {
+        <span class="comment">// Leaf 上行：目的为其他 Leaf 下挂 host</span>
+        leaf_sw.routing.add(other_host, leaf_up_port);
+        <span class="comment">// Spine 下行：目的为该 Leaf 下挂 host</span>
+        spine_sw.routing.add(host_id, spine_down_port);
+    }
+}</div>
+    </div>
+    <div class="col">
+      <h3>关键特性</h3>
+      <ul>
+        <li><strong>ECMP 天然支持</strong>：Leaf 到非本地 host 有 n_spine 条等价路径</li>
+        <li><strong>非阻塞（可选）</strong>：fabric_link_bps = host_link_bps × hosts_per_leaf / 2 时为典型 oversubscription 设计</li>
+        <li><strong>确定性路由</strong>：所有路由表在 build() 时预计算完毕，仿真运行期零路由计算开销</li>
+      </ul>
+      <div class="note">Leaf-Spine 是 AI 集群（如 NVIDIA DGX SuperPOD）的典型拓扑，Leaf 相当于机架交换机（ToR），Spine 相当于汇聚层。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>Fat-Tree（k-ary）拓扑</h2>
+  <p>教科书经典拓扑，三层结构：core / agg / edge。总主机数 = k³/4。</p>
+  <div class="code-block"><span class="comment">// 三层 Entity ID 分配</span>
+hosts: <span class="num">0</span> .. k*k*k/<span class="num">4</span>
+edge:  edge_start .. edge_start + k*(k/<span class="num">2</span>)
+agg:   agg_start  .. agg_start  + k*(k/<span class="num">2</span>)
+core:  core_start .. core_start + (k/<span class="num">2</span>)^<span class="num">2</span>
+
+<span class="comment">// 路由策略（每跳两段 ECMP）</span>
+<span class="comment">// edge → 本 pod 其他 host：直接走对应 edge 端口</span>
+<span class="comment">// edge → 外 pod host：走上行到本 pod 的 k/2 个 agg 之一（ECMP）</span>
+<span class="comment">// agg → 上行到 k/2 个 core 之一（ECMP）</span>
+<span class="comment">// core → 下行到目的 pod 的对应 agg</span>
+<span class="comment">// agg → 下行到对应 edge</span>
+<span class="comment">// edge → 下行到对应 host</span></div>
+  <div class="cols">
+    <div class="col">
+      <h3>构建要点</h3>
+      <ul>
+        <li>k 必须为偶数（前置断言）</li>
+        <li>每个 edge 与同一 pod 内所有 agg 全互联</li>
+        <li>每个 agg 与特定一组 core 相连（按 index 映射）</li>
+        <li>路由表覆盖所有非本地 host，确保任意两主机可达</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>测试断言</h3>
+      <div class="code-block">k=<span class="num">4</span> 时:
+  hosts = <span class="num">4</span>^<span class="num">3</span>/<span class="num">4</span> = <span class="num">16</span>
+  switches = <span class="num">4</span>pods*<span class="num">2</span>edge + <span class="num">4</span>*<span class="num">2</span>agg + <span class="num">4</span>core = <span class="num">20</span>
+  links = <span class="num">16</span>*<span class="num">2</span> + <span class="num">4</span>*(<span class="num">2</span>*<span class="num">2</span>)*<span class="num">2</span> + <span class="num">4</span>*<span class="num">2</span>*<span class="num">2</span>*<span class="num">2</span> = <span class="num">96</span></div>
+      <div class="note">Fat-Tree 的优势在于任意两主机间存在多条等价最短路径，天然支持 ECMP 和 STrack 的 Packet Spraying。</div>
+    </div>
+  </div>
+</section>
+
+<section class="slide">
+  <h2>路由表与 HostUplink</h2>
+  <div class="cols">
+    <div class="col">
+      <h3>RoutingTable</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">RoutingTable</span> {
+    table: <span class="type">HashMap</span>&lt;<span class="type">EntityId</span>, <span class="type">Vec</span>&lt;<span class="type">PortId</span>&gt;&gt;,
+}
+
+<span class="keyword">pub fn</span> <span class="highlight">add</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, dst: <span class="type">EntityId</span>, port: <span class="type">PortId</span>) {
+    <span class="keyword">self</span>.table.entry(dst).or_default().push(port);
+}
+
+<span class="keyword">pub fn</span> <span class="highlight">ports_for</span>(&<span class="keyword">self</span>, dst: <span class="type">EntityId</span>) -> <span class="type">Option</span>&lt;&[<span class="type">PortId</span>]&gt; {
+    <span class="keyword">self</span>.table.get(&dst).map(|v| v.as_slice())
+}</div>
+      <p>ECMP 体现在：同一 dst 可对应多个 port。Switch::ingress 用 hash_key % ports.len() 选择。</p>
+    </div>
+    <div class="col">
+      <h3>HostUplink</h3>
+      <div class="code-block"><span class="keyword">pub struct</span> <span class="type">HostUplink</span> {
+    <span class="keyword">pub</span> host: <span class="type">EntityId</span>,
+    <span class="keyword">pub</span> edge_switch: <span class="type">EntityId</span>,
+    <span class="keyword">pub</span> link_to_switch: <span class="type">u32</span>,   <span class="comment">// host → switch 的链路 ID</span>
+    <span class="keyword">pub</span> link_to_host: <span class="type">u32</span>,     <span class="comment">// switch → host 的链路 ID</span>
+}</div>
+      <p>SimRunner 通过 host_uplink 查询每个 host 应该连接到哪个 edge switch、走哪条链路。支持 Multi-Rail（一个 host 多个 NIC）。</p>
+      <div class="note">Multi-Rail 拓扑扩展了标准 Leaf-Spine，允许每个 host 通过多个 NIC 连接多个 Leaf，实现主机级链路聚合。</div>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="page-num"><span id="page">1</span> / <span id="total">4</span></div>
+<div class="nav">
+  <button onclick="prev()">← 上一页</button>
+  <button onclick="next()">下一页 →</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let idx = 0;
+  function show(i){
+    slides.forEach((s,j)=>s.classList.toggle('active',j===i));
+    document.getElementById('page').textContent = i+1;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100)+'%';
+  }
+  function next(){ if(idx<slides.length-1){idx++;show(idx);} }
+  function prev(){ if(idx>0){idx--;show(idx);} }
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next(); if(e.key==='ArrowLeft')prev(); });
+  show(0);
+</script>
+</body>
+</html>
