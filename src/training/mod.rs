@@ -1,14 +1,18 @@
 //! 训练 Workload 抽象（P2）
-//!
-//! 提供 `TrainingJob`、`Iteration`、`CollectiveOp` 等高层语义，
-//! 用于模拟分布式训练中的 collective communication 模式。
-//!
-//! 核心概念：
-//! - `TrainingJob`：一次完整训练，包含多个 `Iteration`
-//! - `Iteration`：一个训练迭代，包含 forward + backward + collective 序列
-//! - `CollectiveOp`：集合通信操作（AllReduce / ReduceScatter / AllGather / AllToAll）
-//! - `CollectiveAlgorithm`：实现算法（Ring / ReduceScatter+AllGather / Tree）
-//! - `ChunkConfig`：chunk 大小、channel 数、pipeline 深度
+
+pub mod dag;
+
+pub use dag::{TrainingDag, DagNode, TrainingPhase, build_dag, apply_overlap};
+///
+/// 提供 `TrainingJob`、`Iteration`、`CollectiveOp` 等高层语义，
+/// 用于模拟分布式训练中的 collective communication 模式。
+///
+/// 核心概念：
+/// - `TrainingJob`：一次完整训练，包含多个 `Iteration`
+/// - `Iteration`：一个训练迭代，包含 forward + backward + collective 序列
+/// - `CollectiveOp`：集合通信操作（AllReduce / ReduceScatter / AllGather / AllToAll）
+/// - `CollectiveAlgorithm`：实现算法（Ring / ReduceScatter+AllGather / Tree）
+/// - `ChunkConfig`：chunk 大小、channel 数、pipeline 深度
 
 use crate::traffic::FlowDesc;
 use crate::EntityId;

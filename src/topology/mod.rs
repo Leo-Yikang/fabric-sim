@@ -10,10 +10,12 @@
 pub mod leaf_spine;
 pub mod fat_tree;
 pub mod dumbell;
+pub mod multi_rail;
 
 pub use leaf_spine::LeafSpine;
 pub use fat_tree::FatTree;
 pub use dumbell::Dumbell;
+pub use multi_rail::MultiRailLeafSpine;
 
 use crate::network::{LinkRegistry, Switch};
 use crate::EntityId;

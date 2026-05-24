@@ -246,6 +246,11 @@ impl Switch {
 
     pub fn port(&self, port_id: PortId) -> &SwitchPort { &self.ports[port_id as usize] }
     pub fn port_mut(&mut self, port_id: PortId) -> &mut SwitchPort { &mut self.ports[port_id as usize] }
+
+    /// 所有端口的总排队字节数（shared buffer 视图）
+    pub fn total_queue_bytes(&self) -> u32 {
+        self.ports.iter().map(|p| p.queue_bytes).sum()
+    }
 }
 
 #[cfg(test)]
