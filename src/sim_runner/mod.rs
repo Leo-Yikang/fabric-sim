@@ -190,6 +190,9 @@ impl SimRunner {
                 start_ns: f.start_time_ns,
                 finish_ns: 0,
                 bytes: f.bytes,
+                drops: 0,
+                drops_buffer_full: 0,
+                drops_no_route: 0,
             };
         }
     }
@@ -373,7 +376,29 @@ impl SimRunner {
         }
         for sw in &self.topo.switches {
             summary.total_ecn_marks += sw.ecn_marks;
-            summary.total_drops += sw.drops;
+            summary.total_drops += sw.drop_counters.total;
+            // 聚合丢包明细
+            let dc = &sw.drop_counters;
+            summary.drop_breakdown.buffer_full += dc.drops_by_reason(crate::network::drop::DropReason::BufferFull);
+            summary.drop_breakdown.no_route += dc.drops_by_reason(crate::network::drop::DropReason::NoRoute);
+            summary.drop_breakdown.ttl_exceeded += dc.drops_by_reason(crate::network::drop::DropReason::TtlExceeded);
+            summary.drop_breakdown.other += dc.drops_by_reason(crate::network::drop::DropReason::Other);
+            summary.drop_breakdown.per_switch.insert(sw.id, dc.total);
+            // 逐流丢包回填到 fcts
+            for (&fid, pfd) in &dc.per_flow {
+                let idx = fid as usize;
+                if idx < self.fcts.len() && self.fcts[idx].bytes > 0 {
+                    self.fcts[idx].drops += pfd.total;
+                    self.fcts[idx].drops_buffer_full += pfd.buffer_full;
+                    self.fcts[idx].drops_no_route += pfd.no_route;
+                }
+                let entry = summary.drop_breakdown.per_flow.entry(fid).or_insert(
+                    crate::monitor::FlowDropDetail { total: 0, buffer_full: 0, no_route: 0 }
+                );
+                entry.total += pfd.total;
+                entry.buffer_full += pfd.buffer_full;
+                entry.no_route += pfd.no_route;
+            }
             for p in &sw.ports {
                 if p.max_queue_depth_seen > summary.max_queue_depth_bytes {
                     summary.max_queue_depth_bytes = p.max_queue_depth_seen;

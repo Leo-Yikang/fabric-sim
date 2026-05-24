@@ -4,7 +4,7 @@
 //! - FCT (Flow Completion Time)：每条流首字节到末字节的时间
 //! - 链路实时利用率：周期性采样
 //! - 交换机最大队列深度：每个 switch port 自带历史最大值
-//! - ECN 标记数 / 丢包数
+//! - ECN 标记数 / 丢包数（含分原因、逐流、逐端口统计）
 //! - 事件类型直方图、运行剖面（P1 可观测性）
 
 use crate::core::EventKind;
@@ -18,11 +18,17 @@ pub struct FlowFct {
     pub start_ns: u64,
     pub finish_ns: u64,
     pub bytes: u64,
+    /// 该流被丢弃的包总数
+    pub drops: u64,
+    /// 该流因 Buffer 满被丢弃的包数
+    pub drops_buffer_full: u64,
+    /// 该流因无路由被丢弃的包数
+    pub drops_no_route: u64,
 }
 
 impl Default for FlowFct {
     fn default() -> Self {
-        Self { flow_id: 0, start_ns: 0, finish_ns: 0, bytes: 0 }
+        Self { flow_id: 0, start_ns: 0, finish_ns: 0, bytes: 0, drops: 0, drops_buffer_full: 0, drops_no_route: 0 }
     }
 }
 
@@ -118,6 +124,34 @@ pub struct TraceEvent {
     pub action: String,
 }
 
+/// 全局丢包明细（分原因、逐流、逐端口）
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct DropBreakdown {
+    /// Buffer 满引起的丢包数
+    pub buffer_full: u64,
+    /// 无路由引起的丢包数
+    pub no_route: u64,
+    /// （预留）TTL 超时
+    pub ttl_exceeded: u64,
+    /// （预留）其他
+    pub other: u64,
+    /// 逐流的丢包数（索引 = flow_id），仅包含有丢包的流
+    pub per_flow: HashMap<FlowId, FlowDropDetail>,
+    /// 逐交换机的丢包数（索引 = switch_id）
+    pub per_switch: HashMap<u32, u64>,
+}
+
+/// 单条流的丢包明细
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct FlowDropDetail {
+    /// 总丢包数
+    pub total: u64,
+    /// Buffer 满丢包
+    pub buffer_full: u64,
+    /// 无路由丢包
+    pub no_route: u64,
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SimSummary {
     pub mode: String,            // "ecmp" 或 "strack"
@@ -128,6 +162,8 @@ pub struct SimSummary {
     pub total_packets_retransmitted: u64,
     pub total_ecn_marks: u64,
     pub total_drops: u64,
+    /// 丢包明细（分原因、逐流、逐交换机）
+    pub drop_breakdown: DropBreakdown,
     pub fct_p50_ns: u64,
     pub fct_p95_ns: u64,
     pub fct_p99_ns: u64,
@@ -163,6 +199,17 @@ impl SimSummary {
         println!("│ 总重传包数          {}", self.total_packets_retransmitted);
         println!("│ ECN 标记总数        {}", self.total_ecn_marks);
         println!("│ 丢包总数            {}", self.total_drops);
+        if self.total_drops > 0 {
+            let db = &self.drop_breakdown;
+            println!("│   其中 Buffer 满    {}", db.buffer_full);
+            println!("│   其中 无路由       {}", db.no_route);
+            if db.ttl_exceeded > 0 {
+                println!("│   其中 TTL 超时     {}", db.ttl_exceeded);
+            }
+            if db.other > 0 {
+                println!("│   其中 其他         {}", db.other);
+            }
+        }
         println!("│ FCT P50             {:.3} us", self.fct_p50_ns as f64 / 1e3);
         println!("│ FCT P95             {:.3} us", self.fct_p95_ns as f64 / 1e3);
         println!("│ FCT P99             {:.3} us", self.fct_p99_ns as f64 / 1e3);
@@ -177,13 +224,13 @@ impl SimSummary {
 
     /// CSV 表头（便于批量写入文件）
     pub fn csv_header() -> &'static str {
-        "mode,total_flows,completed_flows,total_time_ms,packets_sent,packets_retransmitted,ecn_marks,drops,fct_p50_us,fct_p95_us,fct_p99_us,fct_max_us,avg_link_util_pct,max_queue_depth_bytes"
+        "mode,total_flows,completed_flows,total_time_ms,packets_sent,packets_retransmitted,ecn_marks,drops,drops_buffer_full,drops_no_route,fct_p50_us,fct_p95_us,fct_p99_us,fct_max_us,avg_link_util_pct,max_queue_depth_bytes"
     }
 
     /// 转为 CSV 单行（不含换行符）
     pub fn to_csv_row(&self) -> String {
         format!(
-            "{},{},{},{:.3},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.1},{}",
+            "{},{},{},{:.3},{},{},{},{},{},{},{:.3},{:.3},{:.3},{:.3},{:.1},{}",
             self.mode,
             self.total_flows,
             self.completed_flows,
@@ -192,6 +239,8 @@ impl SimSummary {
             self.total_packets_retransmitted,
             self.total_ecn_marks,
             self.total_drops,
+            self.drop_breakdown.buffer_full,
+            self.drop_breakdown.no_route,
             self.fct_p50_ns as f64 / 1e3,
             self.fct_p95_ns as f64 / 1e3,
             self.fct_p99_ns as f64 / 1e3,

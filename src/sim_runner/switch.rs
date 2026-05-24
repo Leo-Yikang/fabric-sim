@@ -35,7 +35,7 @@ impl SimRunner {
         let pkt_id = pkt.id;
         let hash_key = pkt.src ^ pkt.dst ^ pkt.flow_id;
         let pkt_size = pkt.size;
-        let (port_opt, dropped) = self.topo.switches[sw_idx].ingress(pkt, hash_key);
+        let (port_opt, dropped) = self.topo.switches[sw_idx].ingress(pkt, hash_key, now);
         if dropped {
             self.packet_buf_remove(pkt_id);
             return;

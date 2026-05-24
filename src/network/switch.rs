@@ -8,6 +8,7 @@
 //! - PFC（Priority Flow Control）：高优先级队列满时向上游发送 pause 帧
 
 use super::packet::Packet;
+use super::drop::{DropCounters, DropReason};
 use crate::EntityId;
 use std::collections::{HashMap, VecDeque};
 
@@ -157,7 +158,8 @@ pub struct Switch {
     pub ecn_threshold_bytes: u32,
     pub buffer_max_bytes: u32,
     pub routing: RoutingTable,
-    pub drops: u64,
+    /// 丢包计数器（分原因 + 逐端口）
+    pub drop_counters: DropCounters,
     pub ecn_marks: u64,
     /// P3：PFC pause 计数
     pub pfc_pause_sent: u64,
@@ -173,7 +175,7 @@ impl Switch {
             ecn_threshold_bytes,
             buffer_max_bytes,
             routing: RoutingTable::new(),
-            drops: 0,
+            drop_counters: DropCounters::new(0),
             ecn_marks: 0,
             pfc_pause_sent: 0,
             pfc_resume_sent: 0,
@@ -187,12 +189,20 @@ impl Switch {
 
     /// 入包处理：选择出端口、判 ECN、判丢包、入队
     /// 返回：(选择的出端口, 是否被丢弃)
-    pub fn ingress(&mut self, mut pkt: Packet, hash_key: u32) -> (Option<PortId>, bool) {
+    pub fn ingress(&mut self, mut pkt: Packet, hash_key: u32, now: u64) -> (Option<PortId>, bool) {
+        let flow_id = pkt.flow_id;
+        let seq = pkt.seq;
+        let size = pkt.size;
+        let switch_id = self.id;
+
         let chosen = {
             let ports = match self.routing.ports_for(pkt.dst) {
                 Some(p) if !p.is_empty() => p,
                 _ => {
-                    self.drops += 1;
+                    self.drop_counters.record(
+                        DropReason::NoRoute, None,
+                        flow_id, seq, size, switch_id, now,
+                    );
                     return (None, true);
                 }
             };
@@ -208,7 +218,10 @@ impl Switch {
         let port = &mut self.ports[chosen as usize];
 
         if port.queue_bytes + pkt_size > self.buffer_max_bytes {
-            self.drops += 1;
+            self.drop_counters.record(
+                DropReason::BufferFull, Some(chosen),
+                flow_id, seq, size, switch_id, now,
+            );
             return (Some(chosen), true);
         }
         if port.queue_bytes + pkt_size > self.ecn_threshold_bytes {
@@ -263,9 +276,10 @@ mod tests {
         let mut sw = Switch::new(0, 1_000_000, 2_000_000);
         sw.add_port(0);
         let pkt = Packet::data(1, 0, 0, 0, 100, 999, 0);
-        let (_, dropped) = sw.ingress(pkt, 0);
+        let (_, dropped) = sw.ingress(pkt, 0, 0);
         assert!(dropped);
-        assert_eq!(sw.drops, 1);
+        assert_eq!(sw.drop_counters.total, 1);
+        assert_eq!(sw.drop_counters.no_route_drops(), 1);
     }
 
     #[test]
@@ -274,11 +288,11 @@ mod tests {
         let port = sw.add_port(0);
         sw.routing.add(999, port);
         let pkt1 = Packet::data(1, 0, 0, 0, 100, 999, 0);
-        let (_, d1) = sw.ingress(pkt1, 0);
+        let (_, d1) = sw.ingress(pkt1, 0, 0);
         assert!(!d1);
         assert_eq!(sw.ecn_marks, 0);
         let pkt2 = Packet::data(2, 0, 0, 1, 100, 999, 0);
-        let (_, d2) = sw.ingress(pkt2, 0);
+        let (_, d2) = sw.ingress(pkt2, 0, 0);
         assert!(!d2);
         assert_eq!(sw.ecn_marks, 1);
         assert!(sw.ports[0].priority_queues[LOW_PRIORITY].queue.back().unwrap().ecn);
@@ -291,9 +305,10 @@ mod tests {
         sw.routing.add(999, p);
         for i in 0..5 {
             let pkt = Packet::data(i, 0, 0, i as u32, 100, 999, 0);
-            sw.ingress(pkt, 0);
+            sw.ingress(pkt, 0, 0);
         }
-        assert!(sw.drops > 0);
+        assert!(sw.drop_counters.total > 0);
+        assert!(sw.drop_counters.buffer_full_drops() > 0);
     }
 
     #[test]
@@ -308,7 +323,7 @@ mod tests {
         let mut counts = [0u32; 3];
         for i in 0..300u32 {
             let pkt = Packet::data(i as u64, 0, 0, i, 100, 999, 0);
-            let (chosen, _) = sw.ingress(pkt, i);
+            let (chosen, _) = sw.ingress(pkt, i, 0);
             counts[chosen.unwrap() as usize] += 1;
         }
         for c in counts.iter() { assert!(*c > 50); }
@@ -326,7 +341,7 @@ mod tests {
         // routing_tag=2 → 强制走第二个端口（p2）
         let mut pkt = Packet::data(1, 0, 0, 0, 100, 999, 0);
         pkt.routing_tag = 2;
-        let (chosen, _) = sw.ingress(pkt, 9999);
+        let (chosen, _) = sw.ingress(pkt, 9999, 0);
         assert_eq!(chosen.unwrap(), p2);
     }
 }
