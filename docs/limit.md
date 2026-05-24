@@ -1,7 +1,7 @@
-# STrack-Sim 限制与差距分析
+# Fabric-Sim 限制与差距分析
 
 > **文档版本**：v0.5.0-20260524
-> **对应代码版本**：strack-sim 0.1.0 + RDMA enhancement
+> **对应代码版本**：fabric-sim 0.1.0 + RDMA enhancement
 > **分析范围**：性能瓶颈 + RDMA 语义差距 + 模型简化点 + **实施进度**
 
 ---
@@ -80,7 +80,7 @@ fn has_pending_work(&self) -> bool;
 fn next_rto_deadline(&self) -> Option<u64>;
 ```
 
-- `has_pending_work`：STrack 实现中遍历活跃流，检查 `(in_flight < cwnd && next_seq < total_packets)` 或 `retransmit_queue` 非空。
+- `has_pending_work`：Fabric 实现中遍历活跃流，检查 `(in_flight < cwnd && next_seq < total_packets)` 或 `retransmit_queue` 非空。
 - `next_rto_deadline`：遍历所有 `send_times`，找最小 `send_t + rto_ns`。
 
 ##### 调度逻辑重构（`src/sim_runner/host.rs`）
@@ -191,39 +191,42 @@ DES 的因果一致性要求事件按时间顺序处理，天然串行。当前�
 
 ## 二、RDMA 语义与数据中心网络特性差距
 
-> **实施状态**：P1-P4 已全部实现（2026-05-24），详见各子节 ✅ 标记。
+> **实施状态说明（2026-05-24）**：RDMA enhancement 已有第一版结构和最小端到端路径，但不能按“P1-P4 全部成熟完成”理解。当前更准确的定位是：**RDMA Write 最小端到端原型可跑；RDMA Send/RNR、PFC、Multi-Rail、Host Delay、Training DAG 仍处于结构级或单元测试级原型**。
 
-### 2.1 协议层：RDMA 核心语义缺失 ✅ P1A/P1B/P1C 已实现
+成熟度分级：
 
-| 缺失项 | 当前状态 | 实现文件 |
-|--------|----------|----------|
-| **QP/Queue Pair 状态机** | ✅ 已实现 | `src/nic/rdma.rs` — QpState(RESET→INIT→RTR→RTS) |
-| **WQE/CQE 队列模型** | ✅ 已实现 | `src/nic/rdma.rs` — Wqe/Cqe + QP.send_queue/recv_queue |
-| **Message 边界** | ✅ 已实现 | `src/nic/rdma_protocol.rs` — segment_message(First/Middle/Last/Solo) |
-| **RDMA Write/Send** | ✅ 已实现 | `Protocol::post_send` / `post_write` + RdmaOpcode |
-| **RNR (Receiver Not Ready)** | ✅ 已实现 | 指数退避重试(100μs→100ms)，RNR NAK控制包(Control(1)) |
-| **Selective Repeat** | ✅ SACK bitmap | STrack 已有 SACK bitmap（64位） |
-|--------|----------|----------------|------|
-| **QP/Queue Pair 状态机** | 无 | 每连接独立 PSN 空间、WQE/CQE 队列 | 无法模拟连接生命周期、PSN 回绕、错误恢复 |
-| **WQE/CQE 队列模型** | 无 | post/send/recv → doorbell → completion event | 无法模拟软件提交延迟、completion batching |
-| **Message 边界** | packet 级 | RDMA Write/Send 由多包组成一个 message | 需要 message segmentation/reassembly |
-| **RDMA Read/Write/Atomic** | 仅类似 Send/Recv | one-sided 操作是 RDMA 核心优势 | 无法模拟 bypass CPU 的零拷贝路径 |
-| **RNR (Receiver Not Ready)** | 无 | 接收端 QP 无可用 receive WQE 时触发 | 核心流控机制缺失 |
-| **Selective Repeat** | SACK bitmap | 真实 RDMA 是 go-back-N 或 selective repeat | 重传语义可能不对齐 |
+- **结构完成**：类型、字段、模块和基础 API 已存在。
+- **原型可跑**：局部逻辑有单元测试或可被调用。
+- **端到端验证**：通过 `SimRunner` 和真实拓扑/事件流完成。
+- **可校准可信**：与真实硬件/论文模型的语义和参数对齐。
 
-**结论**：当前模拟器更接近「多路径 TCP」而非「RDMA 模拟器」。
+### 2.1 协议层：RDMA 核心语义成熟度
 
-### 2.2 拥塞控制：缺少数据中心关键机制
+| 能力 | 当前成熟度 | 实现文件 | 说明 |
+|------|------------|----------|------|
+| **QP/Queue Pair 状态机** | 结构完成 | `src/nic/rdma.rs` | 有 `QpState`、`QueuePair`、PSN、WQE/CQE 结构；连接生命周期、错误恢复、PSN 回绕未校准 |
+| **WQE/CQE 队列模型** | 结构完成 | `src/nic/rdma.rs` | 有 WQE/CQE 类型和队列字段；doorbell、completion batching、CQ polling 仍未进入主事件流 |
+| **Message 边界** | 原型可跑 | `src/nic/rdma_protocol.rs` | 支持 Solo/First/Middle/Last 分段和基础重组 |
+| **RDMA Write** | 最小端到端验证 | `src/nic/rdma_protocol.rs`, `tests/integration_rdma.rs` | 默认 `start_flow()` 使用 Write，单包/多包/双向流可通过 `SimRunner` 完成并统计 FCT |
+| **RDMA Send** | 原型可跑 | `src/nic/rdma_protocol.rs` | `post_send()` 存在；Send + posted recv 尚未通过端到端测试闭环 |
+| **RNR (Receiver Not Ready)** | 单元测试级原型 | `src/nic/rdma_protocol.rs` | 可产生 RNR NAK 并设置退避；RNR 后恢复发送仍未端到端验证 |
+| **RDMA Read / Atomic** | 未实现 | — | enum 有 opcode，但没有真正 read request/response 或 atomic 语义 |
+| **重传语义** | 简化 | `src/nic/rdma_protocol.rs` | 当前复用 cwnd/RTO 和 packet ACK；不是完整 IB/RoCE ACK/NAK/PSN 语义 |
 
-| 缺失项 | 当前状态 | 需要补充 |
-|--------|----------|----------|
-| **PFC (Priority Flow Control)** | 完全未实现 | 无损以太网基础，head-of-line blocking 根源 |
-| **CNP (Congestion Notification Packet)** | 未实现 | DCQCN 核心反馈机制，替代 ECN 或直接协同 |
-| **Rate-based CC** | 仅 cwnd-based | DCQCN/HPCC/Swift 均为 rate-based，需 rate limiter |
-| **ECN + PFC 协同** | 单一 ECN threshold | 动态 threshold、ECN marking profile (K_min, K_max, P_max) |
-| **Priority/Traffic Class** | 无 | lossy/lossless 多优先级共存 |
+当前结论：RDMA 模块已经从“纯结构”推进到 **Write 路径最小可跑**，但仍不是成熟 RoCE/RDMA 模拟器。它适合继续做协议原型，不适合直接用于真实 RDMA 对标。
 
-文档中 DCQCN 为「基于速率的量化拥塞控制」，但实现细节（alpha 更新、速率恢复曲线、CNP 生成）需与真实 RoCEv2 对齐。
+### 2.2 拥塞控制与无损网络机制成熟度
+
+| 能力 | 当前成熟度 | 实现文件 | 说明 |
+|------|------------|----------|------|
+| **CNP / DCQCN** | 简化原型 | `src/nic/dcqcn.rs` | 有 CNP 控制包、alpha、rate-based pacing；参数、恢复曲线、硬件语义未校准 |
+| **HPCC / Swift** | 占位原型 | `src/nic/hpcc.rs`, `src/nic/swift.rs` | 文件内明确是简化/占位实现，不能作为可信 baseline |
+| **Priority Queue** | 原型可跑 | `src/network/switch.rs` | 有 2 个优先级队列，按 `routing_tag` 临时映射优先级 |
+| **PFC** | 结构/计数器级原型 | `src/network/switch.rs` | 有 `paused` 标志和 pause/resume 计数；未建模 pause frame 上游反压和 HOL blocking |
+| **Shared Buffer** | 结构级视图 | `src/network/switch.rs` | 有 `total_queue_bytes()` 视图；丢包/阈值仍主要按端口队列，不是真 shared buffer allocator |
+| **ECN + PFC 协同** | 未成熟 | `src/network/switch.rs` | 仍是单一 ECN threshold，没有 Kmin/Kmax/Pmax 或动态阈值 |
+
+当前结论：数据中心 RDMA 网络机制已有可扩展接口和部分简化行为，但 PFC/Shared Buffer 还不能用于分析真实无损以太网的 head-of-line blocking 或 pause storm。
 
 ### 2.3 硬件层次：单 NIC 零延迟过于理想
 
@@ -234,30 +237,30 @@ DES 的因果一致性要求事件按时间顺序处理，天然串行。当前�
               多 GPU / 多 NIC / 多 Rail
 ```
 
-- **无 NVLink/NVSwitch**：无法区分 intra-node 和 inter-node 通信
-- **无 PCIe/DMA 延迟**：NIC 操作零延迟，无法评估 GPUDirect RDMA 优势
-- **无多 NIC/Rail**：现代训练节点通常 8×GPU + 8×NIC (rail-optimized)
+- **NVLink/NVSwitch/PCIe 延迟仅有独立模型**：`src/network/host_delay.rs` 提供延迟矩阵，但尚未接入 `SimRunner` 的事件路径。
+- **多 NIC/Rail 仅有拓扑原型**：`src/topology/multi_rail.rs` 可生成多 NIC entity，但当前仍把 NIC 当 host entity，缺少 GPU/Host/NIC 层次和协议选路语义。
+- **NIC 操作仍基本零延迟**：主仿真路径未注入 DMA、PCIe、doorbell、CQ polling 延迟。
 - **无 NUMA 效应**：CPU-GPU-NIC 亲和性影响未建模
 
 ### 2.4 训练语义：Flow 级 vs Job 级
 
-P2 已完成 `TrainingJob` / `CollectiveOp`，但关键缺口仍在：
+P2 已完成 `TrainingJob` / `CollectiveOp` 的静态展开，P4 也有 `training/dag.rs` 辅助结构，但关键缺口仍在：
 
-1. **无 Compute-Communication Overlap**：真实训练 forward/backward 计算与 all-reduce 通信重叠
-2. **无 Collective DAG**：AllReduce → AllGather → Barrier 的依赖关系未建模
-3. **无 Pipeline Bubble**：PP (Pipeline Parallelism) 的空泡效应
+1. **Compute-Communication Overlap 未接入主事件流**：`training/dag.rs` 可构造 DAG/offset，但不是运行时调度器。
+2. **无运行时 Collective DAG**：AllReduce → AllGather → Barrier 的依赖关系仍静态化。
+3. **Pipeline Bubble 仅有抽象字段/辅助函数**：PP 空泡没有资源占用模型。
 4. **无 Tensor/Model/Expert Parallel 组合**：无法模拟真实大模型训练拓扑
 
 ### 2.5 交换机模型：与真实硬件差距
 
-| 当前模型 | 真实交换机 |
-|----------|------------|
-| 每端口独立 FIFO | Shared Buffer + Dynamic Threshold |
-| 单一 ECN threshold | ECN marking profile |
-| 无优先级队列 | 多优先级 + WRR/SP 调度 |
-| 无 PFC | PFC pause/resume per priority |
-| 路由零延迟 | Switch pipeline + lookup delay |
-| 无 Adaptive Routing | Flowlet、Congestion-Aware Routing |
+| 当前模型 | 成熟度 | 真实交换机仍缺 |
+|----------|--------|----------------|
+| 每端口多优先级 FIFO | 原型 | WRR/SP/WFQ、VOQ、cell switching |
+| 单一 ECN threshold | 简化 | ECN marking profile、dynamic threshold |
+| PFC paused 标志 | 结构级 | pause frame、上游反压、HOL blocking |
+| `total_queue_bytes()` shared buffer 视图 | 结构级 | shared buffer 分配/抢占策略 |
+| 路由零延迟 | 简化 | Switch pipeline + lookup delay |
+| 静态 ECMP/routing_tag | 简化 | Flowlet、Congestion-Aware Routing |
 
 ### 2.6 建议改进优先级
 
@@ -287,7 +290,7 @@ P5 (规模化):
   └─ Parallel DES (LP 分区)
 ```
 
-> 若目标是复现 NSDI'24 STrack 论文实验并与真实硬件对标，**P1 和 P2 为最关键差距**。
+> 若目标是复现 NSDI'24 Fabric 论文实验并与真实硬件对标，**P1 和 P2 为最关键差距**。
 
 ---
 
@@ -296,12 +299,12 @@ P5 (规模化):
 - `src/core/queue.rs` — 4-ary heap 事件队列实现
 - `src/core/event.rs` — 事件类型与全局 seq
 - `src/nic/rdma.rs` — QP状态机、PSN、WQE/CQE、MsgBoundary
-- `src/nic/rdma_protocol.rs` — RdmaProtocol(消息分段重组+RNR流控)
+- `src/nic/rdma_protocol.rs` — RdmaProtocol（Write 最小端到端可跑；Send/RNR 仍为原型）
 - `src/nic/protocol.rs` — Protocol trait(RDMA扩展方法)
-- `src/network/switch.rs` — PFC修复+Shared Buffer
-- `src/network/host_delay.rs` — NVLink/NVSwitch/PCIe延迟模型
-- `src/topology/multi_rail.rs` — 多NIC/Rail拓扑
-- `src/training/dag.rs` — 训练DAG+Compute-Comm Overlap
+- `src/network/switch.rs` — 多优先级队列、PFC 标志、shared-buffer 视图（未完整硬件语义）
+- `src/network/host_delay.rs` — NVLink/NVSwitch/PCIe 延迟矩阵（未接入主路径）
+- `src/topology/multi_rail.rs` — 多 NIC/Rail 拓扑原型
+- `src/training/dag.rs` — 训练 DAG/Overlap 辅助结构（非运行时调度器）
 - `src/sim_runner/mod.rs` — SimRunner 主循环 + PacketSlab
 - `src/sim_runner/host.rs` — 事件驱动 TxTick + RTO Timeout 调度
 - `src/sim_runner/switch.rs` — 交换机事件处理
@@ -310,12 +313,13 @@ P5 (规模化):
 
 | 优先级 | 模块 | 状态 | 关键文件 | 提交版本 |
 |--------|------|------|----------|----------|
-| P1A | QP状态机+PSN | ✅ | `nic/rdma.rs` | `8bf1a2a` |
-| P1B | 消息分段重组+Protocol扩展 | ✅ | `nic/rdma_protocol.rs` | `5f573da` |
-| P1C | RNR流控 | ✅ | `nic/rdma_protocol.rs` | `c9cdbe1` |
-| P2A | PFC修复 | ✅ | `network/switch.rs` | `8cd840f` |
-| P2B | Shared Buffer | ✅ | `network/switch.rs` | `ec9e785` |
-| P3A | 多NIC/Rail | ✅ | `topology/multi_rail.rs` | `ec9e785` |
-| P3B | NVLink/PCIe | ✅ | `network/host_delay.rs` | `ec9e785` |
-| P4 | Training DAG+Overlap | ✅ | `training/dag.rs` | `ec9e785` |
+| P1A | QP状态机+PSN | 结构完成 | `nic/rdma.rs` | `8bf1a2a` |
+| P1B | 消息分段重组+Protocol扩展 | 原型可跑 | `nic/rdma_protocol.rs` | `5f573da` |
+| P1C | RDMA Write 端到端 | 最小端到端验证 | `nic/rdma_protocol.rs`, `tests/integration_rdma.rs` | 当前工作区 |
+| P1D | RNR流控 | 单元测试级原型 | `nic/rdma_protocol.rs` | `c9cdbe1` |
+| P2A | PFC | 结构/计数器级原型 | `network/switch.rs` | `8cd840f` |
+| P2B | Shared Buffer | 结构级视图 | `network/switch.rs` | `ec9e785` |
+| P3A | 多NIC/Rail | 拓扑原型 | `topology/multi_rail.rs` | `ec9e785` |
+| P3B | NVLink/PCIe | 独立延迟模型 | `network/host_delay.rs` | `ec9e785` |
+| P4 | Training DAG+Overlap | 辅助结构 | `training/dag.rs` | `ec9e785` |
 | P5 | 并行DES | ⏳ 远期 | — | — |

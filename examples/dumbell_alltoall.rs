@@ -23,10 +23,10 @@
 //! 逻辑 vs TCP 的 AIMD + 快速重传"在单瓶颈下的差异，而非多路径优势。
 //! 若要测试 STrack 的多路径增益，请换用 LeafSpine / FatTree 拓扑。
 
-use strack_sim::nic::{STrackProtocol, STrackMode, SimpleTcp};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::Dumbell;
-use strack_sim::traffic::AllToAll;
+use fabric_sim::nic::{STrackProtocol, STrackMode, SimpleTcp};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::Dumbell;
+use fabric_sim::traffic::AllToAll;
 
 fn run_strack(label: &str) {
     println!("\n========== 模式：{} ==========", label);

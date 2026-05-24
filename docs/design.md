@@ -1,4 +1,4 @@
-# STrack-Sim 设计文档
+# Fabric-Sim 设计文档
 
 > 版本：v1.1  
 > 维护：kiwios-cn · 2026-05-23  
@@ -8,7 +8,7 @@
 
 ## 1. 项目定位
 
-项目名称仍为 **STrack-Sim**，但当前代码已经不再是“只模拟 STrack”的专用原型，而是一个可插拔协议栈的离散事件网络模拟器。
+项目名称仍为 **Fabric-Sim**，但当前代码已经不再是“只模拟 Fabric”的专用原型，而是一个可插拔协议栈的离散事件网络模拟器。
 
 当前已支持：
 
@@ -225,7 +225,7 @@ Dumbbell 拓扑用于构造明确瓶颈链路，适合验证：
 - ECN 标记。
 - 丢包。
 - 重传。
-- TCP/STrack 在单瓶颈下的差异。
+- TCP/Fabric 在单瓶颈下的差异。
 
 ---
 
@@ -251,7 +251,7 @@ pub trait Protocol {
 
 ### 6.2 STrackProtocol
 
-当前 STrack 实现支持两种模式：
+当前 Fabric 实现支持两种模式：
 
 - `Ecmp`：单路径哈希基线，遇 ECN 直接降窗。
 - `Strack`：多路径 spraying，遇 ECN 优先黑名单路径，全部路径不可用时再降窗。
@@ -278,7 +278,7 @@ pub trait Protocol {
 
 ### 6.3 SimpleTcp
 
-`SimpleTcp` 用于验证 `Protocol` trait 的通用性，并提供非 STrack baseline：
+`SimpleTcp` 用于验证 `Protocol` trait 的通用性，并提供非 Fabric baseline：
 
 - 单路径。
 - 累计 ACK。
@@ -430,7 +430,7 @@ cargo run --release --example incast_compare
 当前结果示例：
 
 - ECMP baseline：15/15 流完成，约 `120706` events，墙钟约 `27.95ms`。
-- STrack：15/15 流完成，约 `127959` events，墙钟约 `21.36ms`。
+- Fabric：15/15 流完成，约 `127959` events，墙钟约 `21.36ms`。
 
 端到端墙钟受系统负载影响明显；后续优化应优先使用 Criterion benchmark 比较热路径。
 
@@ -534,7 +534,10 @@ cargo run --release --example incast_compare
 
 ### 10.4 RDMA/RoCE 细节不足
 
-当前协议模型是“packet + cwnd + ACK/NACK”的简化传输层。真实 RoCE/RDMA 还涉及：
+当前协议模型已经从“packet + cwnd + ACK/NACK”的简化传输层扩展出 RDMA 原型：
+`src/nic/rdma.rs` 提供 QP/PSN/WQE/CQE 等结构，`src/nic/rdma_protocol.rs`
+提供 `RdmaProtocol`，并已有 RDMA Write 的最小端到端测试。但它仍然不是成熟
+RoCE/RDMA 模拟器。真实 RoCE/RDMA 还涉及：
 
 - QP。
 - PSN。
@@ -550,18 +553,18 @@ cargo run --release --example incast_compare
 
 当前缺口：
 
-- 没有 QP 级状态。
-- 没有 rate-based DCQCN。
-- 没有 CNP 包和 alpha 更新。
-- 没有 PFC pause/resume。
-- 没有优先级队列和 buffer sharing。
+- QP 状态机已有结构，但连接生命周期、错误恢复、PSN 回绕未校准。
+- RDMA Write 已能端到端完成；RDMA Send + posted recv 尚未端到端验证。
+- RNR NAK/退避有单元测试，但 RNR 后恢复发送未形成端到端闭环。
+- DCQCN/CNP/rate-based pacing 有简化实现，但参数和恢复曲线未与真实 RoCEv2 校准。
+- PFC/priority/shared-buffer 已有结构或计数器，但不是完整 pause frame 与上游反压模型。
 
 改进建议：
 
-1. 增加 `RoceProtocol` 或 `DcqcnProtocol` baseline。
-2. 将 cwnd-based 简化 CC 和 rate-based CC 分开。
-3. 增加 switch priority queue、PFC threshold、pause frame 事件。
-4. 增加 per-QP/per-flow rate limiter。
+1. 补 RDMA Send + posted recv 端到端测试。
+2. 补 RNR NAK → backoff → 恢复发送的端到端或半端到端测试。
+3. 将 PFC 从本地 paused 标志推进到 pause/resume frame 与上游反压。
+4. 清理 `RdmaProtocol` 的 public/private API 边界，并校准 DCQCN 参数。
 
 ### 10.5 交换机与队列模型过于理想化
 
@@ -745,8 +748,8 @@ packet-level DES 的最大问题是事件数量。
 
 - [x] 完整 DCQCN baseline。
 - [x] HPCC/Swift 类协议占位或简化实现。
-- [x] PFC/CNP/priority queue。
-- [x] 多 QP / 多 NIC。
+- [~] PFC/CNP/priority queue：已有简化原型，硬件级语义未成熟。
+- [~] 多 QP / 多 NIC：QP 结构和 multi-rail 拓扑原型已存在，尚未完整接入主仿真语义。
 
 ### P4：规模化性能
 
@@ -796,7 +799,7 @@ packet-level DES 的最大问题是事件数量。
 - `src/sim_runner/switch.rs`：switch ingress/egress。
 - `src/network/switch.rs`：FIFO queue、ECN/drop、routing。
 - `src/nic/protocol.rs`：可插拔协议接口。
-- `src/nic/strack.rs`：STrack/Ecmp 实现。
+- `src/nic/strack.rs`：Fabric/Ecmp 实现。
 - `src/nic/tcp.rs`：SimpleTcp 实现。
 - `src/traffic/synthetic.rs`：推荐的通用 workload 入口。
 - `src/viz/`：可视化数据采样。

@@ -11,11 +11,11 @@
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-use strack_sim::monitor::SimSummary;
-use strack_sim::nic::{STrackMode, STrackProtocol};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::LeafSpine;
-use strack_sim::traffic::{ArrivalProcess, FlowSizeDist, PairPattern, Synthetic};
+use fabric_sim::monitor::SimSummary;
+use fabric_sim::nic::{STrackMode, STrackProtocol};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::LeafSpine;
+use fabric_sim::traffic::{ArrivalProcess, FlowSizeDist, PairPattern, Synthetic};
 
 struct WorkloadCase {
     label: &'static str,

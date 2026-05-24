@@ -1,9 +1,9 @@
 //! P3 集成测试：DCQCN / HPCC / Swift 协议 baseline 验证
 
-use strack_sim::nic::{DcqcnProtocol, HpccProtocol, SwiftProtocol};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::Dumbell;
-use strack_sim::traffic::Incast;
+use fabric_sim::nic::{DcqcnProtocol, HpccProtocol, SwiftProtocol};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::Dumbell;
+use fabric_sim::traffic::Incast;
 
 fn make_runner() -> SimRunner {
     let topo = Dumbell {

@@ -8,11 +8,11 @@
 
 use std::fs;
 
-use strack_sim::nic::{STrackMode, STrackProtocol};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::LeafSpine;
-use strack_sim::traffic::{ArrivalProcess, FlowSizeDist, PairPattern, Synthetic};
-use strack_sim::viz::{self, TopoKind};
+use fabric_sim::nic::{STrackMode, STrackProtocol};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::LeafSpine;
+use fabric_sim::traffic::{ArrivalProcess, FlowSizeDist, PairPattern, Synthetic};
+use fabric_sim::viz::{self, TopoKind};
 
 fn main() {
     // 大规模拓扑：64 主机，用 RandomPairs 控制流数避免 O(n²) 爆炸

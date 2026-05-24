@@ -1,7 +1,7 @@
-# STrack-Sim · 多路径 RDMA 网络模拟器
+# Fabric-Sim · 多路径 RDMA 网络模拟器
 
-> 一个用 Rust 从零搭建的 **STrack 协议专属离散事件模拟器**，用于研究 AI/ML 集群环境下多路径 RDMA 的性能表现。
-> **四个阶段全部完成 ✅**：DES 引擎 + 拓扑层 + STrack 协议栈 + 流量/Monitor + 端到端对比示例。
+> 一个用 Rust 从零搭建的 **Fabric 协议专属离散事件模拟器**，用于研究 AI/ML 集群环境下多路径 RDMA 的性能表现。
+> **四个阶段全部完成 ✅**：DES 引擎 + 拓扑层 + Fabric 协议栈 + 流量/Monitor + 端到端对比示例。
 
 ---
 
@@ -12,7 +12,7 @@
 | 方案 | 负载均衡 | 拥塞响应 | 恢复机制 |
 |------|---------|---------|---------|
 | RoCEv2 + ECMP | 哈希分流（单路径/流） | DCQCN 风格降窗 | 超时重传 |
-| **STrack** | Packet Spraying | 先切路再降窗 | SACK Bitmap |
+| **Fabric** | Packet Spraying | 先切路再降窗 | SACK Bitmap |
 
 针对的核心痛点：
 1. **ECMP 哈希冲突**导致链路利用率只能跑到 30–50%；
@@ -26,7 +26,7 @@
 **实验设置**：4 Leaf × 8 Spine × 4 host/leaf = 16 hosts，15 个 sender 同时向 host 0 发送 512 KB
 
 ```
-┌─────────── ECMP baseline ────────────         ┌─────────── STrack ────────────────────
+┌─────────── ECMP baseline ────────────         ┌─────────── Fabric ────────────────────
 │ 完成流数            15                         │ 完成流数            15
 │ 仿真总时长          874 us                     │ 仿真总时长          762 us   ✅ -12.8%
 │ FCT P50             816.6 us                   │ FCT P50             704.7 us ✅ -13.7%
@@ -37,14 +37,14 @@
 └──────────────────────────────────────         └──────────────────────────────────────
 ```
 
-可以看到 STrack 在 FCT 上有 **~13% 的明显改善**，代价是更多重传——符合 Packet Spraying 的预期行为。
+可以看到 Fabric 在 FCT 上有 **~13% 的明显改善**，代价是更多重传——符合 Packet Spraying 的预期行为。
 
 ---
 
 ## 📦 项目结构
 
 ```
-strack-sim/
+fabric-sim/
 ├── Cargo.toml
 ├── README.md
 ├── docs/
@@ -63,9 +63,9 @@ strack-sim/
 │   │   ├── leaf_spine.rs    · 2 层 Leaf-Spine
 │   │   ├── fat_tree.rs      · k-ary Fat-Tree
 │   │   └── dumbell.rs       · Dumbbell 拓扑
-│   ├── nic/               ✅ 阶段三：STrack 协议栈
+│   ├── nic/               ✅ 阶段三：Fabric 协议栈
 │   │   ├── protocol.rs      · Protocol trait（可插拔接口）
-│   │   ├── strack.rs        · STrack 协议实现
+│   │   ├── strack.rs        · Fabric 协议实现
 │   │   └── tcp.rs           · SimpleTcp 基线实现
 │   ├── traffic/           ✅ 阶段四：流量生成
 │   │   ├── incast.rs        · N-to-1 多对一拥塞
@@ -86,7 +86,7 @@ strack-sim/
 │       └── sampler.rs        · TimeSeriesSampler 链路利用率采样
 ├── examples/
 │   ├── des_demo.rs        · 阶段一：纯 DES 引擎演示
-│   ├── incast_compare.rs  · 端到端：ECMP vs STrack 对比
+│   ├── incast_compare.rs  · 端到端：ECMP vs Fabric 对比
 │   ├── workload_sweep.rs  · 多维度参数扫描
 │   └── viz_demo.rs        · 3D 可视化数据导出
 ├── scripts/
@@ -111,7 +111,7 @@ strack-sim/
 
 ### 编译
 ```bash
-cd ~/Desktop/strack-sim
+cd ~/Desktop/fabric-sim
 cargo build --release
 ```
 
@@ -130,7 +130,7 @@ cargo test --release
 cargo run --release --example incast_compare
 ```
 
-输出 ECMP vs STrack 在同一 Incast 场景下的对比指标。
+输出 ECMP vs Fabric 在同一 Incast 场景下的对比指标。
 
 ### 运行 DES 引擎演示
 ```bash
@@ -186,7 +186,7 @@ python3 scripts/visualize_3d.py output/viz_data.json
 - [x] `LeafSpine`：参数化生成 + 完整路由
 - [x] `FatTree`：k-ary 三层完整实现
 
-### ✅ 阶段三：NIC + STrack 协议栈
+### ✅ 阶段三：NIC + Fabric 协议栈
 
 - [x] **TxNic**：
   - 流量分段（应用层字节 → MTU 包）
@@ -211,7 +211,7 @@ python3 scripts/visualize_3d.py output/viz_data.json
 ### ✅ 端到端集成
 
 - [x] `SimRunner`：集中式仿真主循环，处理所有事件类型
-- [x] `incast_compare` 示例：ECMP vs STrack 一键对比
+- [x] `incast_compare` 示例：ECMP vs Fabric 一键对比
 - [x] 实测 FCT 改善 ~13%（512 KB Incast）
 
 ---
@@ -237,7 +237,7 @@ python3 scripts/visualize_3d.py output/viz_data.json
 
 ## 📚 参考资料
 
-- **STrack 论文**：*"STrack: A Reliable Multipath Transport for AI/ML Clusters"* (Meta NSDI'24)
+- **Fabric 论文**：*"Fabric: A Reliable Multipath Transport for AI/ML Clusters"* (Meta NSDI'24)
 - **RoCEv2 / DCQCN**：[RFC 8888](https://datatracker.ietf.org/doc/html/rfc8888)
 - **htsim**：UCL 的 C++ DES 网络模拟器
 - **ns-3**：研究级网络模拟器

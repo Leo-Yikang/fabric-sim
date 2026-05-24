@@ -11,17 +11,17 @@
 use std::fs;
 use std::path::Path;
 
-use strack_sim::monitor::SimSummary;
-use strack_sim::nic::{TcpCubic, TcpReno};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::{Dumbell, LeafSpine};
-use strack_sim::traffic::{FlowDesc, Incast};
+use fabric_sim::monitor::SimSummary;
+use fabric_sim::nic::{TcpCubic, TcpReno};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::{Dumbell, LeafSpine};
+use fabric_sim::traffic::{FlowDesc, Incast};
 
 // ── 测试辅助函数 ──
 
 /// 单流 FCT 测试
 fn single_flow<F>(factory: &F, bytes: u64) -> (u64, u64)
-where F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>
+where F: Fn(u32) -> Box<dyn fabric_sim::nic::Protocol>
 {
     let topo = LeafSpine {
         n_leaf: 2,
@@ -47,7 +47,7 @@ where F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>
 
 /// Dumbbell 多流公平性
 fn dumbell_fairness<F>(factory: &F, n_flows: usize) -> (SimSummary, Vec<f64>)
-where F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>
+where F: Fn(u32) -> Box<dyn fabric_sim::nic::Protocol>
 {
     let hosts_per_side = n_flows as u32;
     let topo = Dumbell {
@@ -84,7 +84,7 @@ where F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>
 
 /// Incast 拥塞测试
 fn incast_test<F>(factory: &F, n_senders: u32) -> SimSummary
-where F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>
+where F: Fn(u32) -> Box<dyn fabric_sim::nic::Protocol>
 {
     let topo = LeafSpine {
         n_leaf: ((n_senders as usize + 3) / 4).max(2) as u32,
@@ -114,7 +114,7 @@ where F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>
 
 /// 高 BDP 场景：长链路、高带宽，测试大窗口恢复能力
 fn high_bdp_test<F>(factory: &F, n_flows: usize) -> (SimSummary, u64)
-where F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>
+where F: Fn(u32) -> Box<dyn fabric_sim::nic::Protocol>
 {
     let topo = LeafSpine {
         n_leaf: 2,

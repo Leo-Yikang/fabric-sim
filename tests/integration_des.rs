@@ -1,5 +1,5 @@
 //! 第一阶段集成测试：百万级事件正确性 + 吞吐
-use strack_sim::core::{Event, EventKind, Simulator};
+use fabric_sim::core::{Event, EventKind, Simulator};
 
 #[test]
 fn process_one_million_events_in_order() {

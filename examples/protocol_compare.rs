@@ -2,12 +2,12 @@
 //!
 //! 对比 ECMP / STrack / DCQCN / HPCC / Swift 在 Incast 场景下的表现
 
-use strack_sim::nic::{
+use fabric_sim::nic::{
     DcqcnProtocol, HpccProtocol, SimpleTcp, STrackMode, STrackProtocol, SwiftProtocol,
 };
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::LeafSpine;
-use strack_sim::traffic::Incast;
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::LeafSpine;
+use fabric_sim::traffic::Incast;
 
 fn main() {
     println!("=== STrack-Sim P3 示例：协议 baseline 对比 ===");

@@ -18,10 +18,10 @@
 use std::fs;
 use std::io::Write;
 
-use strack_sim::nic::{SimpleTcp, STrackMode, STrackProtocol};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::Dumbell;
-use strack_sim::traffic::FlowDesc;
+use fabric_sim::nic::{SimpleTcp, STrackMode, STrackProtocol};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::Dumbell;
+use fabric_sim::traffic::FlowDesc;
 
 // ------------------------------------------------------------------
 // 实验参数
@@ -37,7 +37,7 @@ const FLOW_BC_BYTES: u64 = 64 * 1024;
 /// 一次实验运行的完整输出
 struct RunResult {
     label: String,
-    summary: strack_sim::monitor::SimSummary,
+    summary: fabric_sim::monitor::SimSummary,
     /// (flow_id, bytes, fct_ns)
     per_flow: Vec<(u32, u64, u64)>,
 }

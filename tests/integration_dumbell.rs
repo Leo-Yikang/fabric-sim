@@ -1,9 +1,9 @@
 //! Dumbbell + All-to-All 集成测试
 
-use strack_sim::nic::{STrackProtocol, STrackMode, SimpleTcp};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::Dumbell;
-use strack_sim::traffic::AllToAll;
+use fabric_sim::nic::{STrackProtocol, STrackMode, SimpleTcp};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::Dumbell;
+use fabric_sim::traffic::AllToAll;
 
 fn make_dumbell() -> Dumbell {
     Dumbell {
@@ -16,7 +16,7 @@ fn make_dumbell() -> Dumbell {
     }
 }
 
-fn run_strack() -> strack_sim::monitor::SimSummary {
+fn run_strack() -> fabric_sim::monitor::SimSummary {
     let topo = make_dumbell().build();
     let n = topo.num_hosts();
     let mut runner = SimRunner::new(topo, "strack".to_string(), |h, topo| {
@@ -30,7 +30,7 @@ fn run_strack() -> strack_sim::monitor::SimSummary {
     runner.summarize()
 }
 
-fn run_tcp() -> strack_sim::monitor::SimSummary {
+fn run_tcp() -> fabric_sim::monitor::SimSummary {
     let topo = make_dumbell().build();
     let n = topo.num_hosts();
     let mut runner = SimRunner::new(topo, "tcp".to_string(), |h, _topo| {

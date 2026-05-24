@@ -3,10 +3,10 @@
 //! 拓扑：4 Leaf × 2 Spine × 4 host/leaf = 16 hosts
 //! 训练：4 个 rank，2 个 iteration，每个 iteration 包含 AllReduce + AllToAll
 
-use strack_sim::nic::{STrackProtocol, STrackMode};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::LeafSpine;
-use strack_sim::training::{ChunkConfig, CollectiveAlgorithm, CollectiveKind, CollectiveOp, Iteration, TrainingJob};
+use fabric_sim::nic::{STrackProtocol, STrackMode};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::LeafSpine;
+use fabric_sim::training::{ChunkConfig, CollectiveAlgorithm, CollectiveKind, CollectiveOp, Iteration, TrainingJob};
 
 fn run_training(label: &str, algorithm: CollectiveAlgorithm) {
     println!("\n========== 模式：{} / {} ==========", label, format!("{:?}", algorithm).to_lowercase());

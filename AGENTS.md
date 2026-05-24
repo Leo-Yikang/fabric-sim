@@ -1,4 +1,4 @@
-# STrack-Sim 项目指南
+# Fabric-Sim 项目指南
 
 > 本文件面向 AI 编程助手（agent）。如果你从未接触过本项目，请先阅读此文件。
 
@@ -6,11 +6,11 @@
 
 ## 1. 项目概述
 
-**STrack-Sim** 是一个用 Rust 从零搭建的离散事件网络模拟器（Discrete Event Simulator, DES），专门用于研究 **STrack** 多路径 RDMA 传输协议在 AI/ML 集群环境下的性能表现。
+**Fabric-Sim** 是一个用 Rust 从零搭建的离散事件网络模拟器（Discrete Event Simulator, DES），专门用于研究 **Fabric** 多路径 RDMA 传输协议在 AI/ML 集群环境下的性能表现。
 
 核心对比目标：
 - **ECMP baseline**：传统单路径流哈希 + DCQCN 风格降窗
-- **STrack**：Packet Spraying 多路径 + 先切路再降窗 + SACK Bitmap 选择性重传
+- **Fabric**：Packet Spraying 多路径 + 先切路再降窗 + SACK Bitmap 选择性重传
 
 项目已完成四阶段全部实现（DES 引擎 → 拓扑/物理层 → NIC 协议栈 → 流量/Monitor），并通过端到端集成测试验证。主语言为**中文**（注释、文档、提交信息均使用中文）。
 
@@ -47,7 +47,7 @@ cargo build --release
 # 运行全部测试（共 59 个：45 单元 + 13 集成 + 1 文档）
 cargo test --release
 
-# 运行端到端演示（核心成果：ECMP vs STrack 对比）
+# 运行端到端演示（核心成果：ECMP vs Fabric 对比）
 cargo run --release --example incast_compare
 
 # 运行 DES 引擎演示
@@ -91,9 +91,9 @@ src/
 │   ├── leaf_spine.rs   # 两层 Leaf-Spine
 │   ├── fat_tree.rs     # k-ary 三层 Fat-Tree
 │   └── dumbell.rs      # Dumbbell 拓扑
-├── nic/                # 阶段三：STrack 协议栈
+├── nic/                # 阶段三：Fabric 协议栈
 │   ├── protocol.rs     # Protocol trait（可插拔接口）
-│   ├── strack.rs       # STrack 协议实现（Spraying + SACK + 多路径 CC）
+│   ├── strack.rs       # Fabric 协议实现（Spraying + SACK + 多路径 CC）
 │   └── tcp.rs          # SimpleTcp 基线实现（单路径 + 累计 ACK + 快速重传）
 ├── traffic/            # 阶段四：流量生成器
 │   ├── incast.rs       # N-to-1 多对一拥塞
@@ -222,7 +222,7 @@ TxTick { host: EntityId }
 1. 不模拟 PCIe / DMA 开销（NIC 操作零延迟）。
 2. 不模拟交换机查表延迟（路由瞬时完成）。
 3. 链路误码率默认 0（bit error 通过显式注入测试，尚未实现）。
-4. 不模拟 PFC 暂停帧（focus 在 STrack 自身的拥塞响应）。
+4. 不模拟 PFC 暂停帧（focus 在 Fabric 自身的拥塞响应）。
 5. MTU 固定 1KB。
 6. TxTick 粒度 200ns，影响小流精度。
 7. CC 简化：未实现 EWMA、HPCC、Swift 等高级算法。
@@ -303,4 +303,4 @@ A:
 - `docs/design.md`：四阶段完整设计文档、数据结构定义、实测数据、待办事项清单。
 - `src/error.rs`：判错系统设计文档（模块级注释说明分层策略与使用约定）。
 - `logs/README.md`：日志目录说明与日志级别控制指南。
-- STrack 论文：*"STrack: A Reliable Multipath Transport for AI/ML Clusters"* (Meta, NSDI'24)
+- Fabric 论文：*"Fabric: A Reliable Multipath Transport for AI/ML Clusters"* (Meta, NSDI'24)

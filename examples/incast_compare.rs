@@ -3,10 +3,10 @@
 //! 拓扑：4 Leaf × 2 Spine × 4 host/leaf = 16 hosts
 //! 流量：15 个发送端同时向 host 0 发 64KB（典型 Incast）
 
-use strack_sim::nic::{STrackProtocol, STrackMode};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::LeafSpine;
-use strack_sim::traffic::Incast;
+use fabric_sim::nic::{STrackProtocol, STrackMode};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::LeafSpine;
+use fabric_sim::traffic::Incast;
 
 fn run_one(mode: STrackMode, label: &str) {
     println!("\n========== 模式：{} ==========", label);

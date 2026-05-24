@@ -1,19 +1,19 @@
-//! # STrack 多路径 RDMA 网络模拟器
+//! # Fabric-Sim: AI 集群网络 Fabric 离散事件仿真器
 //!
 //! 基于离散事件仿真 (Discrete Event Simulation, DES) 的网络模拟器，
-//! 用于研究 STrack 协议在 AI/ML 集群环境下的性能表现。
+//! 用于研究多路径 RDMA 传输协议在 AI/ML 集群环境下的性能表现。
 //!
 //! ## 模块组织
 //! - [`core`]:     离散事件引擎（事件、事件队列、时钟、调度器）
 //! - [`network`]:  网络拓扑与物理层抽象（节点、链路、交换机）
-//! - [`nic`]:      可插拔网卡协议栈（`Protocol` trait；已内置 STrack、SimpleTCP）
-//! - [`topology`]: 拓扑生成器（Fat-Tree, Leaf-Spine）
-//! - [`traffic`]:  流量生成器（AllReduce, AllToAll, Incast）
-//! - [`monitor`]:  指标采集与日志输出
+//! - [`nic`]:      可插拔网卡协议栈（`Protocol` trait；内置 STrack、TCP Reno/CUBIC、DCQCN、HPCC、Swift、RDMA）
+//! - [`topology`]: 拓扑生成器（Fat-Tree, Leaf-Spine, Dumbell, Multi-Rail）
+//! - [`traffic`]:  流量生成器（AllReduce, AllToAll, Incast, Synthetic, Mix）
+//! - [`monitor`]:  指标采集与日志输出（含丢包归因追踪）
 //!
 //! ## 快速开始
 //! ```no_run
-//! use strack_sim::core::{Simulator, Event, EventKind};
+//! use fabric_sim::core::{Simulator, Event, EventKind};
 //!
 //! let mut sim = Simulator::new();
 //! sim.schedule(Event::new(100, EventKind::Custom("hello".into()), 0));

@@ -59,7 +59,7 @@ def plot_fct(rows: list[dict], out_dir: Path):
     bars2 = ax.bar([i + width / 2 for i in x], p99, width, label="P99 FCT", color="coral")
 
     ax.set_ylabel("FCT (us)")
-    ax.set_title("不同工作负载特征下的 FCT 对比 (LeafSpine × STrack)")
+    ax.set_title("不同工作负载特征下的 FCT 对比 (LeafSpine × Fabric)")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=9)
     ax.legend()

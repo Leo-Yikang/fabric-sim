@@ -3,11 +3,11 @@
 //! 系统覆盖不同拓扑 × 协议 × 流大小分布 × 到达过程 × 流量模式的组合，
 //! 验证协议在各种工作负载特征下的基本正确性（所有流完成、FCT > 0、拥塞可观测）。
 
-use strack_sim::monitor::SimSummary;
-use strack_sim::nic::{SimpleTcp, STrackMode, STrackProtocol};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::{Dumbell, LeafSpine};
-use strack_sim::traffic::{
+use fabric_sim::monitor::SimSummary;
+use fabric_sim::nic::{SimpleTcp, STrackMode, STrackProtocol};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::{Dumbell, LeafSpine};
+use fabric_sim::traffic::{
     ArrivalProcess, FlowSizeDist, PairPattern, Synthetic,
 };
 

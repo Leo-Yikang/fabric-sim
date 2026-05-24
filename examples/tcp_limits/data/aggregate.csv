@@ -1,3 +1,3 @@
 protocol,total_flows,completed_flows,packets_sent,retransmitted,drops,ecn,p50_fct_us,p99_fct_us
-SimpleTcp,4,4,642,194,129,124,438.8,572.7
-STrack,4,4,663,215,152,203,142.1,243.1
+SimpleTcp,4,4,712,264,166,150,529.5,564.2
+STrack,4,4,679,231,164,208,243.9,252.8

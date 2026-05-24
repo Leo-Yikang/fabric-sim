@@ -1,9 +1,9 @@
 [package]
-name = "strack-sim"
+name = "fabric-sim"
 version = "0.1.0"
 edition = "2021"
 authors = ["kiwios-cn"]
-description = "STrack 多路径 RDMA 网络模拟器 (Rust)"
+description = "AI 集群网络 Fabric 离散事件仿真器 (Rust)"
 license = "MIT"
 
 [dependencies]

@@ -1,9 +1,9 @@
 //! P2 集成测试：TrainingJob + CollectiveOp 端到端验证
 
-use strack_sim::nic::{STrackMode, STrackProtocol};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::Dumbell;
-use strack_sim::training::{
+use fabric_sim::nic::{STrackMode, STrackProtocol};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::Dumbell;
+use fabric_sim::training::{
     ChunkConfig, CollectiveAlgorithm, CollectiveKind, CollectiveOp, Iteration, TrainingJob,
 };
 

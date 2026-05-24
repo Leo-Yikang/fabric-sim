@@ -3,7 +3,7 @@
 //! 运行：`cargo bench`
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use strack_sim::core::{Event, EventKind, Simulator};
+use fabric_sim::core::{Event, EventKind, Simulator};
 
 fn bench_push_pop(c: &mut Criterion) {
     c.bench_function("schedule_run_100k_independent", |b| {

@@ -10,9 +10,9 @@
 
 ## 1. 背景
 
-STrack-Sim 的 `SimpleTcp` 实现了 TCP Reno 的核心机制——慢启动、拥塞避免、快速重传（3 dup ACK）、RTO 超时重传——但**仅支持累计 ACK，不支持 SACK（Selective Acknowledgment）**。本报告通过精心构造的拥塞实验，量化这一缺失对丢包恢复效率的实际影响，并以此说明真实 TCP 引入 SACK（RFC 2018）的动机。
+Fabric-Sim 的 `SimpleTcp` 实现了 TCP Reno 的核心机制——慢启动、拥塞避免、快速重传（3 dup ACK）、RTO 超时重传——但**仅支持累计 ACK，不支持 SACK（Selective Acknowledgment）**。本报告通过精心构造的拥塞实验，量化这一缺失对丢包恢复效率的实际影响，并以此说明真实 TCP 引入 SACK（RFC 2018）的动机。
 
-对比对象：`STrackProtocol`（STrack 模式），其接收端在检测到空洞时生成 NACK，携带 64-bit SACK bitmap 精确报告已到达/缺失的包序号。
+对比对象：`STrackProtocol`（Fabric 模式），其接收端在检测到空洞时生成 NACK，携带 64-bit SACK bitmap 精确报告已到达/缺失的包序号。
 
 ---
 
@@ -53,7 +53,7 @@ STrack-Sim 的 `SimpleTcp` 实现了 TCP Reno 的核心机制——慢启动、�
 
 ### 2.3 关键参数
 
-| 参数 | SimpleTcp | STrack |
+| 参数 | SimpleTcp | Fabric |
 |------|-----------|--------|
 | 初始 cwnd | 16 | 16 |
 | 最大 cwnd | 256 | 256 |
@@ -72,17 +72,17 @@ STrack-Sim 的 `SimpleTcp` 实现了 TCP Reno 的核心机制——慢启动、�
 > 不同运行之间数据有轻微波动。完整数据见 `examples/tcp_limits/data/aggregate.csv`。
 > 以下为一次典型运行的结果：
 
-| 指标 | SimpleTcp | STrack | 差异 |
+| 指标 | SimpleTcp | Fabric | 差异 |
 |------|-----------|--------|------|
 | 总流数 | 4 | 4 | — |
 | 完成流数 | 4 | 4 | — |
-| 总发包数 | 598 | 644 | −8%（STrack 多发 46 包） |
+| 总发包数 | 598 | 644 | −8%（Fabric 多发 46 包） |
 | 总重传数 | 150 | 196 | −23% |
 | 重传率 | 25.1% | 30.4% | −5pp |
 | 总丢包数 | 102 | 142 | −28% |
 | 总 ECN 标记 | 106 | 185 | −43% |
-| **P50 FCT** | 322.7 μs | 229.8 μs | **+40%（STrack 快 1.4×）** |
-| **P99 FCT** | 420.6 μs | 237.8 μs | **+77%（STrack 快 1.8×）** |
+| **P50 FCT** | 322.7 μs | 229.8 μs | **+40%（Fabric 快 1.4×）** |
+| **P99 FCT** | 420.6 μs | 237.8 μs | **+77%（Fabric 快 1.8×）** |
 
 ### 3.2 可视化分析
 
@@ -93,7 +93,7 @@ STrack-Sim 的 `SimpleTcp` 实现了 TCP Reno 的核心机制——慢启动、�
 
 ![P50/P99 FCT 分组柱状图](fig_fct_bars.png)
 
-- **P50 FCT**：STrack 比 SimpleTcp 快约 40%。即使是中位数，累计 ACK 的恢复延迟也造成了可观测的差距。
+- **P50 FCT**：Fabric 比 SimpleTcp 快约 40%。即使是中位数，累计 ACK 的恢复延迟也造成了可观测的差距。
 - **P99 FCT**：差距扩大到约 77%（图上标注的加速比）。大象流（流 A，256 KB）经历多轮丢包和恢复，SimpleTcp 的尾部延迟被 RTO 级联显著放大。
 
 #### 逐流 FCT 分布
@@ -101,31 +101,31 @@ STrack-Sim 的 `SimpleTcp` 实现了 TCP Reno 的核心机制——慢启动、�
 ![逐流 FCT 散点图](fig_fct_scatter.png)
 
 - 点大小与流数据量成正比：最大的点是 256 KB 的大象流（流 A）。
-- SimpleTcp 的大象流 FCT 远高于其他小流，且显著高于 STrack 的大象流——直观展示了超时级联对大象流的惩罚。
-- STrack 的四条流 FCT 更集中，均值线也更低。
+- SimpleTcp 的大象流 FCT 远高于其他小流，且显著高于 Fabric 的大象流——直观展示了超时级联对大象流的惩罚。
+- Fabric 的四条流 FCT 更集中，均值线也更低。
 
 #### 数据包构成
 
 ![数据包构成柱状图](fig_packet_breakdown.png)
 
-- STrack 发包总数更多——因为它恢复快、不闲置链路，在相同仿真时间内发送了更多数据。
-- STrack 的 ECN 标记显著更多（+75%），但丢包绝对数量也在同一量级——说明它在"可控拥塞"状态下运行（被标记而非被丢弃）。
+- Fabric 发包总数更多——因为它恢复快、不闲置链路，在相同仿真时间内发送了更多数据。
+- Fabric 的 ECN 标记显著更多（+75%），但丢包绝对数量也在同一量级——说明它在"可控拥塞"状态下运行（被标记而非被丢弃）。
 - SimpleTcp 发包少、丢包少——不是因为更高效，而是因为大量时间在等 RTO 超时，链路闲置。
 
 #### 重传率对比
 
 ![重传率对比](fig_retx_ratio.png)
 
-- 左图展示了首次发送 vs 重传的构成。STrack 总发包多，重传也多，但完成也更快——更高的"有效吞吐"。
+- 左图展示了首次发送 vs 重传的构成。Fabric 总发包多，重传也多，但完成也更快——更高的"有效吞吐"。
 - 右图的重传率对比：两者重传率在同一水平（均在 25-30% 区间），说明丢包严重程度相当。关键区别不在丢多少包，而在**丢包后多快能恢复**。
 
 ### 3.3 关键发现
 
-1. **重传次数**：SimpleTcp 比 STrack 少发 46 个包（链路利用率更低），但完成时间更长——说明瓶颈不在丢包率，而在恢复速度。
+1. **重传次数**：SimpleTcp 比 Fabric 少发 46 个包（链路利用率更低），但完成时间更长——说明瓶颈不在丢包率，而在恢复速度。
 
 2. **FCT 差距集中在尾部和大流**：从散点图可见，小流（64 KB）的 FCT 差距不大，但大象流（256 KB）差距明显——多轮丢包 × 每次 RTO 100μs = 累积延迟。
 
-3. **ECN vs 丢包的 trade-off**：STrack 的高 ECN + 低 FCT 模式说明它在主动利用 ECN 信号调节速率，而非被动等待丢包后超时。
+3. **ECN vs 丢包的 trade-off**：Fabric 的高 ECN + 低 FCT 模式说明它在主动利用 ECN 信号调节速率，而非被动等待丢包后超时。
 
 ---
 
@@ -147,7 +147,7 @@ STrack-Sim 的 `SimpleTcp` 实现了 TCP Reno 的核心机制——慢启动、�
 → 一个 RTT 内恢复 ✓
 ```
 
-**这是 SimpleTcp 和 STrack 都能处理的场景。** 当只有一个包丢失时，累计 ACK 足够定位。
+**这是 SimpleTcp 和 Fabric 都能处理的场景。** 当只有一个包丢失时，累计 ACK 足够定位。
 
 ### 4.2 多包丢失场景（本实验的实际情形）
 
@@ -166,7 +166,7 @@ STrack-Sim 的 `SimpleTcp` 实现了 TCP Reno 的核心机制——慢启动、�
                但此时没有新的 dup ACK（ACK 已经从 12 变成了 15，不是重复的）
                          ↓
            SimpleTcp: 只能等 RTO 超时（100μs）才能重传 seq=15！
-           STrack:    NACK 的 SACK bitmap 在第一次检测时就标记了 seq=15 缺失
+           Fabric:    NACK 的 SACK bitmap 在第一次检测时就标记了 seq=15 缺失
                       发送端在收到 NACK 后立即将 seq=15 加入重传队列
 ```
 
@@ -187,9 +187,9 @@ if acked > flow.un_acked_base {
 }
 ```
 
-### 4.4 STrack 的 NACK 机制如何解决
+### 4.4 Fabric 的 NACK 机制如何解决
 
-STrack 接收端在 `on_data()` 中维护一个 64-bit SACK bitmap [strack.rs:360-430](src/nic/strack.rs:360-430)：
+Fabric 接收端在 `on_data()` 中维护一个 64-bit SACK bitmap [strack.rs:360-430](src/nic/strack.rs:360-430)：
 
 ```rust
 // 乱序到达 → 设置 bitmap 对应位 → 触发 NACK
@@ -238,11 +238,11 @@ SimpleTcp 大致处于 **1990 年 Tahoe→Reno 过渡期**的技术水平。本�
 
 ## 6. 实验局限性
 
-1. **单瓶颈**：Dumbbell 只有一条瓶颈链路，所有丢包集中在同一台交换机。在多路径拓扑（Leaf-Spine / Fat-Tree）中，STrack 还有额外的路径分集优势，本实验未涉及。
+1. **单瓶颈**：Dumbbell 只有一条瓶颈链路，所有丢包集中在同一台交换机。在多路径拓扑（Leaf-Spine / Fat-Tree）中，Fabric 还有额外的路径分集优势，本实验未涉及。
 
-2. **固定 RTO 的影响未分离**：SimpleTcp 和 STrack 共享相同的硬编码 RTO（100μs）。如果 SimpleTcp 实现了动态 RTT 估计，部分 RTO 超时可能被避免，但累计 ACK 的根本限制仍在。
+2. **固定 RTO 的影响未分离**：SimpleTcp 和 Fabric 共享相同的硬编码 RTO（100μs）。如果 SimpleTcp 实现了动态 RTT 估计，部分 RTO 超时可能被避免，但累计 ACK 的根本限制仍在。
 
-3. **未测量 ACK 开销**：SimpleTcp 每个数据包生成一个 ACK；STrack 每个数据包生成 ACK + 乱序时额外 NACK。在正常（无丢包）场景下，SimpleTcp 和 STrack 的控制包开销相同。丢包场景下 STrack 的 NACK 额外开销很小（64 bytes/packet），远小于 RTO 空闲时间。
+3. **未测量 ACK 开销**：SimpleTcp 每个数据包生成一个 ACK；Fabric 每个数据包生成 ACK + 乱序时额外 NACK。在正常（无丢包）场景下，SimpleTcp 和 Fabric 的控制包开销相同。丢包场景下 Fabric 的 NACK 额外开销很小（64 bytes/packet），远小于 RTO 空闲时间。
 
 4. **流量模式单一**：仅测试了同时开始（Simultaneous arrival）的固定大小流。Poisson 到达或不同流大小分布下，拥塞模式不同，相对差距可能变化。
 
@@ -253,19 +253,19 @@ SimpleTcp 大致处于 **1990 年 Tahoe→Reno 过渡期**的技术水平。本�
 本实验通过构造**极小缓冲 + 同时突发**的拥塞场景，量化了累计 ACK vs SACK 选择性重传在丢包恢复效率上的差异：
 
 - **SimpleTcp 的累计 ACK 在单窗口多包丢失时，仅能快速重传第一个丢失包，其余丢包依赖 RTO 逐个恢复。**
-- **STrack 的 NACK + SACK bitmap 一次性定位所有缺失包，消除了 RTO 级联。**
-- **实测 P99 FCT 差距约 1.8×，且 STrack 在更短的完成时间内发送了更多数据包（更高的有效吞吐）。**
+- **Fabric 的 NACK + SACK bitmap 一次性定位所有缺失包，消除了 RTO 级联。**
+- **实测 P99 FCT 差距约 1.8×，且 Fabric 在更短的完成时间内发送了更多数据包（更高的有效吞吐）。**
 
 可视化图表（`fig_fct_bars.png`、`fig_fct_scatter.png`、`fig_packet_breakdown.png`、`fig_retx_ratio.png`）从不同维度印证了这一结论。
 
-这一差距并非 SimpleTcp 的实现缺陷，而是 TCP 协议设计演进中的已知问题。真实 TCP 通过 SACK（RFC 2018）、NewReno（RFC 2582）、TLP（RFC 8985）等机制逐步弥补了这些不足。若未来要在 STrack-Sim 中实现更准确的 TCP baseline，SACK 的加入应是最高优先级。
+这一差距并非 SimpleTcp 的实现缺陷，而是 TCP 协议设计演进中的已知问题。真实 TCP 通过 SACK（RFC 2018）、NewReno（RFC 2582）、TLP（RFC 8985）等机制逐步弥补了这些不足。若未来要在 Fabric-Sim 中实现更准确的 TCP baseline，SACK 的加入应是最高优先级。
 
 ---
 
 ## 参考
 
 - `src/nic/tcp.rs` — SimpleTcp 实现
-- `src/nic/strack.rs` — STrack 协议实现（含 NACK + SACK bitmap）
+- `src/nic/strack.rs` — Fabric 协议实现（含 NACK + SACK bitmap）
 - `examples/tcp_limits/multi_loss.rs` — 本实验的源代码
 - `examples/tcp_limits/plot.py` — 图表生成脚本
 - `examples/tcp_limits/data/` — 实验输出的 CSV 原始数据

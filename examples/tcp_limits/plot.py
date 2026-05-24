@@ -41,8 +41,8 @@ PER_FLOW = DATA_DIR / "per_flow.csv"
 AGGREGATE = DATA_DIR / "aggregate.csv"
 
 # 配色
-COLORS = {"SimpleTcp": "#E74C3C", "STrack": "#2980B9"}
-HATCH = {"SimpleTcp": "//", "STrack": ".."}
+COLORS = {"SimpleTcp": "#E74C3C", "Fabric": "#2980B9"}
+HATCH = {"SimpleTcp": "//", "Fabric": ".."}
 
 # ------------------------------------------------------------------
 # 数据加载
@@ -106,7 +106,7 @@ def plot_fct_bars(agg: dict[str, dict], out: Path):
     ax.set_xticks(x)
     ax.set_xticklabels(protocols, fontsize=13, fontweight="bold")
     ax.set_ylabel("FCT (μs)", fontsize=12)
-    ax.set_title("多包丢失场景：SimpleTcp vs STrack 的 FCT 对比", fontsize=14, fontweight="bold")
+    ax.set_title("多包丢失场景：SimpleTcp vs Fabric 的 FCT 对比", fontsize=14, fontweight="bold")
     ax.legend(fontsize=10)
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     ax.set_ylim(0, top_y * 1.05)
@@ -142,7 +142,7 @@ def plot_fct_scatter(pf: dict[str, list[dict]], out: Path):
                 va="center", fontsize=9, color=COLORS[proto], fontweight="bold")
 
     ax.set_xticks([0, 1])
-    ax.set_xticklabels(["SimpleTcp", "STrack"], fontsize=13, fontweight="bold")
+    ax.set_xticklabels(["SimpleTcp", "Fabric"], fontsize=13, fontweight="bold")
     ax.set_ylabel("FCT (μs)", fontsize=12)
     ax.set_title("逐流 FCT 散点分布（点大小 ∝ 流数据量）", fontsize=14, fontweight="bold")
     ax.legend(fontsize=10, loc="upper left")

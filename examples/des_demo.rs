@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::fs::OpenOptions;
 use std::rc::Rc;
 use std::sync::Mutex;
-use strack_sim::core::{Event, EventKind, Simulator};
+use fabric_sim::core::{Event, EventKind, Simulator};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 fn init_logger() {

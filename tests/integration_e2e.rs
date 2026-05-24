@@ -1,11 +1,11 @@
 //! 端到端集成测试：完整跑 Incast 场景，验证两种模式都能完成
 
-use strack_sim::nic::{STrackProtocol, STrackMode};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::LeafSpine;
-use strack_sim::traffic::Incast;
+use fabric_sim::nic::{STrackProtocol, STrackMode};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::LeafSpine;
+use fabric_sim::traffic::Incast;
 
-fn run(mode: STrackMode) -> strack_sim::monitor::SimSummary {
+fn run(mode: STrackMode) -> fabric_sim::monitor::SimSummary {
     let topo = LeafSpine {
         n_leaf: 2, n_spine: 2, hosts_per_leaf: 3,
         host_link_bps: 100_000_000_000,

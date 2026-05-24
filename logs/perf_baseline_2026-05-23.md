@@ -120,7 +120,7 @@ cargo run --release --example incast_compare
 结果：
 
 - ECMP baseline：15/15 流完成，`120706` events，墙钟约 `27.95ms`，有效吞吐约 `4.32M events/s`。
-- STrack：15/15 流完成，`127959` events，墙钟约 `21.36ms`，有效吞吐约 `5.99M events/s`。
+- Fabric：15/15 流完成，`127959` events，墙钟约 `21.36ms`，有效吞吐约 `5.99M events/s`。
 
 注意：端到端墙钟受系统负载影响明显，后续比较应优先使用 Criterion benchmark；端到端 example 只作为“不会卡住/不会事件活锁”的 sanity check。
 

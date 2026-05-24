@@ -13,8 +13,8 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::collections::{BinaryHeap, HashMap};
-use strack_sim::core::{Event, EventKind, EventQueue};
-use strack_sim::network::Packet;
+use fabric_sim::core::{Event, EventKind, EventQueue};
+use fabric_sim::network::Packet;
 
 struct OldBinaryHeapQueue {
     heap: BinaryHeap<Event>,

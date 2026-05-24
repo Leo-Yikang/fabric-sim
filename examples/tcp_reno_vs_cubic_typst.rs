@@ -9,11 +9,11 @@
 use std::fs;
 use std::path::Path;
 
-use strack_sim::monitor::SimSummary;
-use strack_sim::nic::{TcpCubic, TcpReno};
-use strack_sim::sim_runner::SimRunner;
-use strack_sim::topology::{Dumbell, LeafSpine};
-use strack_sim::traffic::{FlowDesc, Incast};
+use fabric_sim::monitor::SimSummary;
+use fabric_sim::nic::{TcpCubic, TcpReno};
+use fabric_sim::sim_runner::SimRunner;
+use fabric_sim::topology::{Dumbell, LeafSpine};
+use fabric_sim::traffic::{FlowDesc, Incast};
 
 fn fmt_bytes(bytes: u64) -> String {
     if bytes >= 1024 * 1024 * 1024 {
@@ -50,7 +50,7 @@ fn escape_typst(s: &str) -> String {
 
 fn single_flow<F>(factory: &F, bytes: u64) -> SimSummary
 where
-    F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>,
+    F: Fn(u32) -> Box<dyn fabric_sim::nic::Protocol>,
 {
     let topo = LeafSpine {
         n_leaf: 2,
@@ -77,7 +77,7 @@ where
 
 fn dumbell_fairness<F>(factory: &F, n_flows: usize) -> (SimSummary, Vec<f64>)
 where
-    F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>,
+    F: Fn(u32) -> Box<dyn fabric_sim::nic::Protocol>,
 {
     let hosts_per_side = n_flows as u32;
     let topo = Dumbell {
@@ -125,7 +125,7 @@ where
 
 fn incast_test<F>(factory: &F, n_senders: u32) -> SimSummary
 where
-    F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>,
+    F: Fn(u32) -> Box<dyn fabric_sim::nic::Protocol>,
 {
     let topo = LeafSpine {
         n_leaf: ((n_senders as usize + 3) / 4).max(2) as u32,
@@ -154,7 +154,7 @@ where
 
 fn high_bdp_test<F>(factory: &F, n_flows: usize) -> SimSummary
 where
-    F: Fn(u32) -> Box<dyn strack_sim::nic::Protocol>,
+    F: Fn(u32) -> Box<dyn fabric_sim::nic::Protocol>,
 {
     let topo = LeafSpine {
         n_leaf: 2,
@@ -287,9 +287,9 @@ const REFS_BIB: &str = r#"@article{jacobson1988congestion,
   year={1999}
 }
 
-@misc{strack2025,
-  title={STrack-Sim: A Discrete Event Network Simulator for AI/ML Cluster Transport Protocol Research},
-  author={STrack-Sim Contributors},
+@misc{fabric2025,
+  title={Fabric-Sim: A Discrete Event Network Simulator for AI/ML Cluster Transport Protocol Research},
+  author={Fabric-Sim Contributors},
   year={2025},
   note={Open-source project}
 }
@@ -306,7 +306,7 @@ fn main() {
     // ═══════════════════════════════════════════════════════
     t.push_str(
         r#"// TCP Reno vs CUBIC 对比分析报告
-#set document(title: "TCP Reno vs CUBIC 对比分析", author: "STrack-Sim 仿真平台")
+#set document(title: "TCP Reno vs CUBIC 对比分析", author: "Fabric-Sim 仿真平台")
 #set page(numbering: "1", number-align: center)
 #set text(font: "Times New Roman", size: 11pt)
 #set par(leading: 0.6em, justify: true)
@@ -317,7 +317,7 @@ fn main() {
   #v(0.3cm)
   #text(size: 16pt)[拥塞控制算法性能对比分析]
   #v(1.5cm)
-  #text(size: 12pt)[基于 STrack-Sim 离散事件网络仿真]
+  #text(size: 12pt)[基于 Fabric-Sim 离散事件网络仿真]
   #v(0.5cm)
   #text(size: 11pt)[报告日期："#,
     );
@@ -338,7 +338,7 @@ fn main() {
     t.push_str(
         r#"= 摘要
 
-本文基于 STrack-Sim 离散事件网络仿真平台，系统比较了 TCP Reno 与 TCP CUBIC
+本文基于 Fabric-Sim 离散事件网络仿真平台，系统比较了 TCP Reno 与 TCP CUBIC
 两种经典拥塞控制算法在数据中心网络环境下的性能差异。实验涵盖四类典型场景：
 （1）单流无竞争 FCT 基准测试，覆盖 64 KB 至 512 MB 共八种流大小；
 （2）Dumbbell 拓扑多流公平性测试，评估 4 至 32 条竞争流的带宽分配；
@@ -411,7 +411,7 @@ CUBIC 自 Linux 内核 2.6.19 起成为默认拥塞控制算法，至今仍广�
 
 == 仿真平台
 
-本实验基于 STrack-Sim @strack2025 离散事件网络仿真器（Discrete Event
+本实验基于 Fabric-Sim @fabric2025 离散事件网络仿真器（Discrete Event
 Simulator, DES），该仿真器以纳秒级时间精度进行逐包仿真，支持可插拔协议栈、
 可配置拓扑生成、以及结构化的丢包与 ECN 标记追踪。仿真器的核心参数如下：
 
@@ -969,7 +969,7 @@ Incast 的本质是瞬时的流量突发远超交换机缓冲容量。在这种�
 
 == 丢包追踪能力简介
 
-STrack-Sim 提供了精细化的丢包追踪能力，每次丢包事件均记录以下维度：
+Fabric-Sim 提供了精细化的丢包追踪能力，每次丢包事件均记录以下维度：
 丢包原因（DropReason）、发生时间、交换机 ID、目标端口、所属流 ID
 （flow_id）、包序号（seq）和包大小。丢包原因枚举包括：
 
