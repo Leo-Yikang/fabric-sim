@@ -99,13 +99,15 @@ impl SwitchPort {
         None
     }
 
-    /// P3：入队到指定优先级
+    /// P3：入队到指定优先级，自动更新 per-priority queue_bytes
     pub fn enqueue_priority(&mut self, pkt: Packet, priority: usize) {
         let pri = priority.min(NUM_PRIORITIES - 1);
+        let sz = pkt.size;
+        self.priority_queues[pri].queue_bytes += sz;
         self.priority_queues[pri].queue.push_back(pkt);
     }
 
-    /// P3：检查某优先级队列是否触发 PFC
+    /// P3：检查某优先级队列是否触发 PFC（超过阈值且未暂停时）
     pub fn check_pfc(&mut self, priority: usize) -> bool {
         if priority >= NUM_PRIORITIES {
             return false;
@@ -114,9 +116,38 @@ impl SwitchPort {
         let threshold = pq.pfc_threshold_bytes;
         if threshold > 0 && pq.queue_bytes >= threshold && !pq.paused {
             self.priority_queues[priority].paused = true;
-            return true; // 需要发送 PFC pause
+            return true;
         }
         false
+    }
+
+    /// P3：检查是否可以发送 PFC resume（队列降至阈值以下且仍暂停）
+    pub fn check_pfc_resume(&mut self, priority: usize) -> bool {
+        if priority >= NUM_PRIORITIES {
+            return false;
+        }
+        let pq = &self.priority_queues[priority];
+        let resume_threshold = pq.pfc_threshold_bytes / 2;
+        if pq.paused && pq.queue_bytes <= resume_threshold {
+            self.priority_queues[priority].paused = false;
+            return true;
+        }
+        false
+    }
+
+    /// P3：跳过被 pause 的高优先级队列，从下一个非空队列出队
+    pub fn dequeue_priority_skip_paused(&mut self) -> Option<(Packet, usize)> {
+        for pri in 0..NUM_PRIORITIES {
+            if self.priority_queues[pri].paused {
+                continue; // PFC paused — 跳过该优先级
+            }
+            if let Some(pkt) = self.priority_queues[pri].queue.pop_front() {
+                self.priority_queues[pri].queue_bytes = self.priority_queues[pri].queue_bytes.saturating_sub(pkt.size);
+                self.queue_bytes = self.queue_bytes.saturating_sub(pkt.size);
+                return Some((pkt, pri));
+            }
+        }
+        None
     }
 }
 
@@ -203,7 +234,14 @@ impl Switch {
 
     pub fn dequeue(&mut self, port_id: PortId) -> Option<Packet> {
         let port = &mut self.ports[port_id as usize];
-        port.dequeue_priority().map(|(pkt, _pri)| pkt)
+        let result = port.dequeue_priority_skip_paused().map(|(pkt, pri)| {
+            // PFC resume 检查：出队后若队列降至阈值以下，触发 resume
+            if port.check_pfc_resume(pri) {
+                // resume 信号由上层处理
+            }
+            pkt
+        });
+        result
     }
 
     pub fn port(&self, port_id: PortId) -> &SwitchPort { &self.ports[port_id as usize] }
