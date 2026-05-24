@@ -1,8 +1,8 @@
 # STrack-Sim 限制与差距分析
 
-> **文档版本**：v0.2.0-20260524
-> **对应代码版本**：strack-sim 0.1.0（当前分支）
-> **分析范围**：性能瓶颈 + RDMA 语义差距 + 模型简化点
+> **文档版本**：v0.5.0-20260524
+> **对应代码版本**：strack-sim 0.1.0 + RDMA enhancement
+> **分析范围**：性能瓶颈 + RDMA 语义差距 + 模型简化点 + **实施进度**
 
 ---
 
@@ -191,13 +191,18 @@ DES 的因果一致性要求事件按时间顺序处理，天然串行。当前�
 
 ## 二、RDMA 语义与数据中心网络特性差距
 
-> 本节系统梳理当前模拟器与真实 RDMA/RoCEv2 数据中心网络之间的结构性差距。这些差距不属于性能瓶颈，而是**功能缺失**，决定了模拟结果能否直接对标真实硬件行为。
+> **实施状态**：P1-P4 已全部实现（2026-05-24），详见各子节 ✅ 标记。
 
-### 2.1 协议层：RDMA 核心语义缺失
+### 2.1 协议层：RDMA 核心语义缺失 ✅ P1A/P1B/P1C 已实现
 
-当前协议模型本质上是「packet + cwnd + ACK/NACK」的简化传输层，距离真实 RDMA 较远：
-
-| 缺失项 | 当前状态 | 真实 RDMA 场景 | 影响 |
+| 缺失项 | 当前状态 | 实现文件 |
+|--------|----------|----------|
+| **QP/Queue Pair 状态机** | ✅ 已实现 | `src/nic/rdma.rs` — QpState(RESET→INIT→RTR→RTS) |
+| **WQE/CQE 队列模型** | ✅ 已实现 | `src/nic/rdma.rs` — Wqe/Cqe + QP.send_queue/recv_queue |
+| **Message 边界** | ✅ 已实现 | `src/nic/rdma_protocol.rs` — segment_message(First/Middle/Last/Solo) |
+| **RDMA Write/Send** | ✅ 已实现 | `Protocol::post_send` / `post_write` + RdmaOpcode |
+| **RNR (Receiver Not Ready)** | ✅ 已实现 | 指数退避重试(100μs→100ms)，RNR NAK控制包(Control(1)) |
+| **Selective Repeat** | ✅ SACK bitmap | STrack 已有 SACK bitmap（64位） |
 |--------|----------|----------------|------|
 | **QP/Queue Pair 状态机** | 无 | 每连接独立 PSN 空间、WQE/CQE 队列 | 无法模拟连接生命周期、PSN 回绕、错误恢复 |
 | **WQE/CQE 队列模型** | 无 | post/send/recv → doorbell → completion event | 无法模拟软件提交延迟、completion batching |
@@ -290,9 +295,27 @@ P5 (规模化):
 
 - `src/core/queue.rs` — 4-ary heap 事件队列实现
 - `src/core/event.rs` — 事件类型与全局 seq
+- `src/nic/rdma.rs` — QP状态机、PSN、WQE/CQE、MsgBoundary
+- `src/nic/rdma_protocol.rs` — RdmaProtocol(消息分段重组+RNR流控)
+- `src/nic/protocol.rs` — Protocol trait(RDMA扩展方法)
+- `src/network/switch.rs` — PFC修复+Shared Buffer
+- `src/network/host_delay.rs` — NVLink/NVSwitch/PCIe延迟模型
+- `src/topology/multi_rail.rs` — 多NIC/Rail拓扑
+- `src/training/dag.rs` — 训练DAG+Compute-Comm Overlap
 - `src/sim_runner/mod.rs` — SimRunner 主循环 + PacketSlab
 - `src/sim_runner/host.rs` — 事件驱动 TxTick + RTO Timeout 调度
-- `src/sim_runner/switch.rs` — 交换机事件处理（Slab 索引转发）
-- `src/network/switch.rs` — Switch::ingress 无分配优化
-- `src/nic/protocol.rs` — Protocol trait（新增 `has_pending_work` / `next_rto_deadline`）
-- `src/nic/strack.rs` / `src/nic/tcp.rs` — 两个方法的具体实现
+- `src/sim_runner/switch.rs` — 交换机事件处理
+
+## 三、实施进度总览
+
+| 优先级 | 模块 | 状态 | 关键文件 | 提交版本 |
+|--------|------|------|----------|----------|
+| P1A | QP状态机+PSN | ✅ | `nic/rdma.rs` | `8bf1a2a` |
+| P1B | 消息分段重组+Protocol扩展 | ✅ | `nic/rdma_protocol.rs` | `5f573da` |
+| P1C | RNR流控 | ✅ | `nic/rdma_protocol.rs` | `c9cdbe1` |
+| P2A | PFC修复 | ✅ | `network/switch.rs` | `8cd840f` |
+| P2B | Shared Buffer | ✅ | `network/switch.rs` | `ec9e785` |
+| P3A | 多NIC/Rail | ✅ | `topology/multi_rail.rs` | `ec9e785` |
+| P3B | NVLink/PCIe | ✅ | `network/host_delay.rs` | `ec9e785` |
+| P4 | Training DAG+Overlap | ✅ | `training/dag.rs` | `ec9e785` |
+| P5 | 并行DES | ⏳ 远期 | — | — |
