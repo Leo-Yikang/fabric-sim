@@ -7,6 +7,9 @@
 use crate::network::packet::{FlowId, Packet};
 use crate::EntityId;
 
+// ── RDMA 类型导入 ──
+use super::rdma::{QpState, Qpn};
+
 /// 协议层通用统计信息
 #[derive(Default, Debug, Clone, Copy)]
 pub struct ProtocolStats {
@@ -17,6 +20,11 @@ pub struct ProtocolStats {
     pub nack_received: u64,
     pub nacks_sent: u64,
     pub flows_completed: u64,
+    /// RDMA: 完成的 message 数
+    pub messages_completed: u64,
+    /// RDMA: RNR NAK 发送/接收
+    pub rnr_naks_sent: u64,
+    pub rnr_naks_received: u64,
 }
 
 /// 传输协议接口
@@ -60,4 +68,17 @@ pub trait Protocol {
     fn next_tx_time(&self) -> Option<u64> {
         None
     }
+
+    // ── RDMA 扩展方法（默认实现为 no-op，非 RDMA 协议无需 override）──
+
+    /// RDMA: 提交一个 Send 操作（双向，需要远端预置 recv WQE）
+    fn post_send(&mut self, _qpn: Qpn, _bytes: u64, _now: u64) {}
+    /// RDMA: 提交一个 Write 操作（单边，不需远端 CPU 参与）
+    fn post_write(&mut self, _qpn: Qpn, _bytes: u64, _now: u64) {}
+    /// RDMA: 预置一个接收 buffer
+    fn post_recv(&mut self, _qpn: Qpn, _bytes: u64, _now: u64) {}
+    /// RDMA: 获取 QP 状态
+    fn qp_state(&self, _qpn: Qpn) -> Option<QpState> { None }
+    /// RDMA: 获取已完成的消息（msg_id, qpn, finish_ns）
+    fn take_finished_messages(&mut self) -> Vec<(u64, Qpn, u64)> { Vec::new() }
 }

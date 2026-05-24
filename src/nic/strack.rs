@@ -514,6 +514,7 @@ impl Protocol for STrackProtocol {
             nack_received: self.tx_stats.nack_received,
             nacks_sent: self.rx_stats.nacks_sent,
             flows_completed: self.tx_stats.flows_completed,
+            ..Default::default()
         }
     }
 
