@@ -729,9 +729,9 @@ Simulator, DES），该仿真器以纳秒级时间精度进行逐包仿真，支
     t.push_str("== 场景四：高 BDP 长肥管道\n\n");
     t.push_str("模拟跨机架的长传播延迟（50 µs）配合瓶颈带宽（1 Gbps）场景，\n");
     t.push_str(&format!(
-        "BDP ≈ {} bytes，约为交换机 Buffer（40 KB）的 {}×。\n",
+        "BDP ≈ {} bytes，约为交换机 Buffer（40 KB）的 {:.1}×。\n",
         bdp_bytes,
-        bdp_bytes / 40_000
+        bdp_ratio
     ));
     t.push_str("这是 CUBIC 立方恢复机制的理论优势场景。\n\n");
 
@@ -789,6 +789,59 @@ Simulator, DES），该仿真器以纳秒级时间精度进行逐包仿真，支
         ],
         &hbdp_congestion_rows,
         &[3, 4],
+    ));
+    t.push_str("\n");
+
+    // ── 3.5 结果小结 ──
+    t.push_str("== 结果小结\n\n");
+    t.push_str("下表汇总四类场景中的关键指标对比：\n\n");
+    // 取代表性数据行：单流 64MB, Dumbbell 16流, Incast 32发送端, 高BDP 16流
+    let single_64mb_fct_reno = single_rows[5][1].clone();
+    let single_64mb_fct_cubic = single_rows[5][2].clone();
+    let dumbell_16_jain_reno = dumbell_perf_rows[2][1].clone();
+    let dumbell_16_jain_cubic = dumbell_perf_rows[2][2].clone();
+    let incast_32_p99_reno = incast_latency_rows[3][3].clone();
+    let incast_32_p99_cubic = incast_latency_rows[3][4].clone();
+    let hbdp_16_adv = hbdp_latency_rows[2][5].clone();
+
+    let mut summary_rows: Vec<Vec<String>> = Vec::new();
+    summary_rows.push(vec![
+        "单流 64 MB".to_string(),
+        single_64mb_fct_reno + " ms",
+        single_64mb_fct_cubic + " ms",
+        "~0%（无竞争）".to_string(),
+        "0".to_string(),
+        "链路序列化延迟主导".to_string(),
+    ]);
+    summary_rows.push(vec![
+        "Dumbbell 16 流".to_string(),
+        "Jain ".to_string() + &dumbell_16_jain_reno,
+        "Jain ".to_string() + &dumbell_16_jain_cubic,
+        dumbell_perf_rows[2][5].clone(),
+        dumbell_drop_rows[2][1].clone(),
+        "Jain 公平性互有高低".to_string(),
+    ]);
+    summary_rows.push(vec![
+        "Incast 32 发送端".to_string(),
+        incast_32_p99_reno.clone() + " µs",
+        incast_32_p99_cubic.clone() + " µs",
+        "Reno P99 更低".to_string(),
+        incast_congestion_rows[3][1].clone(),
+        "Reno 保守降窗减少二次丢包".to_string(),
+    ]);
+    summary_rows.push(vec![
+        "高 RTT 16 流".to_string(),
+        hbdp_latency_rows[2][1].clone() + " ms",
+        hbdp_latency_rows[2][2].clone() + " ms",
+        hbdp_16_adv,
+        hbdp_congestion_rows[2][1].clone(),
+        "CUBIC 立方恢复显著优势".to_string(),
+    ]);
+
+    t.push_str(&typst_table(
+        &["场景", "Reno 指标", "CUBIC 指标", "差异", "丢包数(BufferFull)", "结论"],
+        &summary_rows,
+        &[],
     ));
     t.push_str("\n");
 
@@ -950,8 +1003,8 @@ Incast 场景下，`BufferFull` 丢包占比 100%。随着发送端数量从 4 �
 
 高 BDP 场景下丢包全部为 `BufferFull`。值得注意的是，尽管流数较少
 （4-16），但丢包数远高于同流数的 Dumbbell 场景。这是因为 Buffer
-（40 KB）远小于 BDP（约 6.25 KB），导致任何微小的 cwnd 超调都
-会立即触发队列溢出。
+（40 KB）远大于 BDP（约 6.1 KB），但由于长 RTT 导致 Reno
+的 AIMD 线性恢复极为缓慢，频繁的丢包-恢复循环对 Reno 更为不利。
 
 == 丢包对协议行为的影响
 
@@ -995,9 +1048,9 @@ TCP CUBIC 在数据中心网络环境中的性能差异。核心发现如下：
    @zhu2015dcqcn 来避免 Incast 场景下的丢包，而非依赖端到端
    丢包检测算法。
 
-4. *高 BDP 长肥管道*：CUBIC 的立方恢复机制带来了明确的 FCT 优势，
-   且优势随 BDP 增大而递增。在 16 流、BDP ≈ 156× Buffer 的场景
-   中，CUBIC 的 P50 FCT 显著低于 Reno。
+4. *高 RTT 长肥管道*：CUBIC 的立方恢复机制带来了明确的 FCT 优势，
+   且优势随 RTT 增大而扩大。本场景中长传播延迟（50 µs）使得 Reno
+   的线性 AIMD 恢复极为缓慢，而 CUBIC 的三次增长与 RTT 无关，P50 FCT 显著低于 Reno。
 
 == 工程建议
 
