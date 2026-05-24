@@ -1,32 +1,39 @@
-# Fabric-Sim · 多路径 RDMA 网络模拟器
+# Fabric-Sim · AI 集群网络 Fabric 离散事件仿真器
 
-> 一个用 Rust 从零搭建的 **Fabric 协议专属离散事件模拟器**，用于研究 AI/ML 集群环境下多路径 RDMA 的性能表现。
-> **四个阶段全部完成 ✅**：DES 引擎 + 拓扑层 + Fabric 协议栈 + 流量/Monitor + 端到端对比示例。
+> 基于 Rust 从零搭建的**可插拔协议离散事件网络模拟器**，面向 AI/ML 集群的多协议传输行为研究。
+> 已内置 **STrack、TCP Reno/CUBIC、DCQCN、HPCC、Swift、RDMA** 等协议，提供丢包归因、ECN、FCT、公平性等多维指标。
 
 ---
 
-## 🎯 项目目标
+## 🎯 核心能力
 
-复现并对比下列方案在 Fat-Tree / Leaf-Spine 拓扑下的表现：
+### 多协议对比
 
-| 方案 | 负载均衡 | 拥塞响应 | 恢复机制 |
+| 协议 | 路径策略 | 拥塞控制 | 恢复机制 |
 |------|---------|---------|---------|
-| RoCEv2 + ECMP | 哈希分流（单路径/流） | DCQCN 风格降窗 | 超时重传 |
-| **Fabric** | Packet Spraying | 先切路再降窗 | SACK Bitmap |
+| ECMP baseline | 哈希分流（单路径/流） | DCQCN 风格降窗 | 超时重传 |
+| **STrack** | Packet Spraying | 先切路再降窗 | SACK Bitmap 选择性重传 |
+| TCP Reno | 单路径 | AIMD + Fast Recovery | 3 dup ACK + RTO |
+| TCP CUBIC | 单路径 | 三次函数窗口增长 | Fast Retransmit + RTO |
+| DCQCN | 单路径 | ECN-based rate control | CNP 触发降速 |
+| HPCC | 单路径 | INT-based 精确速率 | 链路利用率反馈 |
+| Swift | 单路径 | 延迟目标驱动 | ACK 时钟恢复 |
+| RDMA | 多 QP | Go-Back-N / 选择性重传 | RNR NAK 流控 |
 
-针对的核心痛点：
-1. **ECMP 哈希冲突**导致链路利用率只能跑到 30–50%；
-2. RoCEv2 依赖无损以太网，bit error 回退开销不可接受；
-3. 硬件卸载场景下多路径状态难以维护。
+### 精细化丢包追踪
+
+支持分原因、逐流、逐端口的丢包归因，见[丢包追踪详情](docs/design.md#丢包追踪)。
 
 ---
 
-## 📊 实测结果（Incast 场景）
+## 📊 实测示例
 
-**实验设置**：4 Leaf × 8 Spine × 4 host/leaf = 16 hosts，15 个 sender 同时向 host 0 发送 512 KB
+### Incast：ECMP vs STrack
+
+**设置**：4 Leaf × 8 Spine × 4 host/leaf = 16 hosts，15 个 sender 同时向 host 0 发送 512 KB
 
 ```
-┌─────────── ECMP baseline ────────────         ┌─────────── Fabric ────────────────────
+┌─────────── ECMP baseline ────────────         ┌─────────── STrack ────────────────────
 │ 完成流数            15                         │ 完成流数            15
 │ 仿真总时长          874 us                     │ 仿真总时长          762 us   ✅ -12.8%
 │ FCT P50             816.6 us                   │ FCT P50             704.7 us ✅ -13.7%
@@ -34,10 +41,20 @@
 │ 总发送包数          7752                       │ 总发送包数          8652
 │ 总重传包数          72                         │ 总重传包数          972
 │ ECN 标记总数        4182                       │ ECN 标记总数        5134
+│ 丢包总数 (BufferFull) 43                       │ 丢包总数 (BufferFull) 399
 └──────────────────────────────────────         └──────────────────────────────────────
 ```
 
-可以看到 Fabric 在 FCT 上有 **~13% 的明显改善**，代价是更多重传——符合 Packet Spraying 的预期行为。
+STrack 在 FCT 上有 **~13% 改善**，代价是更多重传与丢包——符合 Packet Spraying 的预期。
+
+### TCP Reno vs CUBIC 学术报告
+
+生成 Typst 格式的完整实验分析报告（含丢包归因）：
+
+```bash
+cargo run --release --example tcp_reno_vs_cubic_typst
+typst compile output/tcp_reno_vs_cubic/report.typ
+```
 
 ---
 
@@ -48,57 +65,82 @@ fabric-sim/
 ├── Cargo.toml
 ├── README.md
 ├── docs/
-│   └── design.md          ← 四阶段完整设计文档
+│   ├── design.md          ← 完整设计文档
+│   ├── limit.md           ← 性能瓶颈与限制分析
+│   └── learning.md        ← 网络协议学习笔记
 ├── src/
 │   ├── lib.rs             ← crate 入口
+│   ├── error.rs           ← SimError + SimResult
 │   ├── core/              ✅ 阶段一：DES 引擎
 │   │   ├── event.rs         · Event + EventKind
-│   │   ├── queue.rs         · EventQueue (BinaryHeap min-heap)
-│   │   └── simulator.rs     · Simulator + Handler
+│   │   ├── queue.rs         · 4-ary EventQueue
+│   │   └── simulator.rs     · Simulator
 │   ├── network/           ✅ 阶段二：物理层
-│   │   ├── packet.rs        · Packet（含 ECN + SACK bitmap）
+│   │   ├── packet.rs        · Packet（含 ECN、RDMA 字段）
 │   │   ├── link.rs          · Link + LinkRegistry
-│   │   └── switch.rs        · Switch + Port + RoutingTable + ECN
+│   │   ├── switch.rs        · Switch + 优先级队列 + PFC
+│   │   ├── drop.rs          · DropReason + DropCounters + 丢包追踪
+│   │   └── host_delay.rs    · 主机内部延迟模型
 │   ├── topology/          ✅ 阶段二：拓扑生成
 │   │   ├── leaf_spine.rs    · 2 层 Leaf-Spine
 │   │   ├── fat_tree.rs      · k-ary Fat-Tree
-│   │   └── dumbell.rs       · Dumbbell 拓扑
-│   ├── nic/               ✅ 阶段三：Fabric 协议栈
-│   │   ├── protocol.rs      · Protocol trait（可插拔接口）
-│   │   ├── strack.rs        · Fabric 协议实现
-│   │   └── tcp.rs           · SimpleTcp 基线实现
+│   │   ├── dumbell.rs       · Dumbbell
+│   │   └── multi_rail.rs    · 多轨拓扑
+│   ├── nic/               ✅ 阶段三：可插拔协议栈
+│   │   ├── protocol.rs      · Protocol trait
+│   │   ├── strack.rs        · STrack（Ecmp / Strack 双模式）
+│   │   ├── tcp.rs           · SimpleTcp 基线
+│   │   ├── reno.rs          · TCP Reno（完整 Fast Recovery）
+│   │   ├── cubic.rs         · TCP CUBIC
+│   │   ├── dcqcn.rs         · DCQCN（ECN-based rate control）
+│   │   ├── hpcc.rs          · HPCC（INT-based）
+│   │   ├── swift.rs         · Swift（延迟目标驱动）
+│   │   ├── rdma.rs          · RDMA QP / WQE / CQE 状态机
+│   │   └── rdma_protocol.rs · RdmaProtocol 实现
 │   ├── traffic/           ✅ 阶段四：流量生成
-│   │   ├── incast.rs        · N-to-1 多对一拥塞
+│   │   ├── incast.rs        · N-to-1
 │   │   ├── all_reduce.rs    · Ring AllReduce
 │   │   ├── all_to_all.rs    · 全员两两交换
 │   │   ├── synthetic.rs     · 通用合成流量
 │   │   ├── permute.rs       · 排列流量
 │   │   └── mix.rs           · 混合流量
-│   ├── monitor/           ✅ 阶段四：指标采集
-│   │   └── mod.rs           · FlowFct + SimSummary
+│   ├── training/          ✅ 训练作业抽象
+│   │   ├── mod.rs           · TrainingJob + Iteration + CollectiveOp
+│   │   └── dag.rs           · 训练 DAG
+│   ├── monitor/           ✅ 指标采集
+│   │   └── mod.rs           · FlowFct + SimSummary + DropBreakdown + RunProfile
 │   ├── sim_runner/        ✅ 端到端仿真主循环
-│   │   ├── mod.rs           · SimRunner 集中分发
-│   │   ├── host.rs          · 主机侧事件处理
-│   │   └── switch.rs        · 交换机侧事件处理
-│   └── viz/               ✅ 3D 可视化数据采集
-│       ├── data.rs           · VizData / VizNode / VizLink（serde）
-│       ├── position.rs       · 3D 坐标计算（Dumbell / LeafSpine）
-│       └── sampler.rs        · TimeSeriesSampler 链路利用率采样
+│   │   ├── mod.rs           · SimRunner + PacketSlab + 集中分发
+│   │   ├── host.rs          · 主机侧事件（TxTick / RTO / ACK）
+│   │   └── switch.rs        · 交换机侧事件（ingress / egress）
+│   └── viz/               ✅ 3D 可视化
+│       ├── data.rs           · VizData / VizNode / VizLink
+│       ├── position.rs       · 3D 坐标
+│       └── sampler.rs        · 时间序列采样器
 ├── examples/
-│   ├── des_demo.rs        · 阶段一：纯 DES 引擎演示
-│   ├── incast_compare.rs  · 端到端：ECMP vs Fabric 对比
-│   ├── workload_sweep.rs  · 多维度参数扫描
-│   └── viz_demo.rs        · 3D 可视化数据导出
+│   ├── des_demo.rs              · DES 引擎演示
+│   ├── incast_compare.rs        · ECMP vs STrack 对比
+│   ├── protocol_compare.rs      · 多协议对比
+│   ├── tcp_reno_vs_cubic.rs     · Reno vs CUBIC（Markdown）
+│   ├── tcp_reno_vs_cubic_typst.rs · Reno vs CUBIC（Typst 学术报告）
+│   ├── dumbell_alltoall.rs      · Dumbbell AllToAll
+│   ├── training_job.rs          · 训练作业模拟
+│   ├── workload_sweep.rs        · 多维度参数扫描
+│   └── viz_demo.rs              · 3D 可视化导出
 ├── scripts/
-│   └── visualize_3d.py    · Python Plotly 3D 交互式渲染
+│   ├── visualize_3d.py          · Plotly 3D 渲染
+│   └── plot_workloads.py        · 结果图表生成
 ├── benches/
-│   └── des_bench.rs       · DES 引擎吞吐基准
-├── tests/
-│   ├── integration_des.rs · 百万级 DES 事件
-│   ├── integration_e2e.rs · 端到端 Incast 完整性
-│   ├── integration_dumbell.rs · Dumbbell 拓扑集成
-│   └── matrix_workloads.rs   · 参数化矩阵测试
-└── logs/                  · 运行时日志输出目录
+│   ├── des_bench.rs             · DES 吞吐基准
+│   └── optimization_compare.rs  · 优化方案对比
+└── tests/
+    ├── integration_des.rs       · 百万级 DES 事件
+    ├── integration_e2e.rs       · 端到端完整性
+    ├── integration_dumbell.rs   · Dumbbell 拓扑
+    ├── integration_protocols.rs · 多协议集成
+    ├── integration_training.rs  · 训练作业集成
+    ├── integration_rdma.rs      · RDMA 集成
+    └── matrix_workloads.rs      · 参数化矩阵
 ```
 
 ---
@@ -110,137 +152,84 @@ fabric-sim/
 - macOS / Linux
 
 ### 编译
+
 ```bash
-cd ~/Desktop/fabric-sim
+git clone https://github.com/Leo-Yikang/fabric-sim.git
+cd fabric-sim
 cargo build --release
 ```
 
-### 运行测试（59 个测试，全部通过）
+### 运行测试（127 个，全部通过）
+
 ```bash
 cargo test --release
 ```
 
-预期：
-- 45 个单元测试（core / network / nic / topology / traffic 模块）
-- 13 个集成测试（DES 引擎 / 端到端 / Dumbbell / 参数化矩阵）
-- 1 个文档测试
+### 端到端演示
 
-### 运行端到端演示（核心成果）
 ```bash
+# ECMP vs STrack
 cargo run --release --example incast_compare
+
+# 多协议对比（Reno / CUBIC / DCQCN / HPCC / Swift）
+cargo run --release --example protocol_compare
+
+# 生成 Reno vs CUBIC 学术报告（Typst → PDF）
+cargo run --release --example tcp_reno_vs_cubic_typst
+typst compile output/tcp_reno_vs_cubic/report.typ
 ```
 
-输出 ECMP vs Fabric 在同一 Incast 场景下的对比指标。
+### 3D 可视化
 
-### 运行 DES 引擎演示
 ```bash
-cargo run --release --example des_demo
+cargo run --release --example viz_demo
+pip install plotly
+python3 scripts/visualize_3d.py output/viz_data.json
 ```
 
-性能：~12–25 M events/sec（取决于场景）
+### 性能基准
 
-### 跑性能基准
 ```bash
 cargo bench
 ```
 
-### 3D 交互式拓扑可视化
-
-仿真过程中采集链路利用率时间序列，导出 JSON 后用 Python Plotly 渲染 3D 动画拓扑图。
-
-```bash
-# 1. 运行仿真并导出数据
-cargo run --release --example viz_demo
-
-# 2. 安装 Python 依赖（首次）
-pip install plotly
-
-# 3. 在浏览器中打开 3D 可视化
-python3 scripts/visualize_3d.py output/viz_data.json
-```
-
-可视化特性：
-- 节点：蓝色圆点（主机）+ 橙色菱形（交换机），带标签
-- 链路：颜色从绿→黄→红随利用率渐变，线宽随利用率增大
-- 底部时间滑块可拖拽或自动播放
-- 支持 3D 旋转、缩放、平移
-- 暗色主题，标题栏显示 FCT P99 / 平均利用率等摘要指标
-
 ---
 
-## 🧭 四阶段开发蓝图（实现状态）
+## 📝 关键设计
 
-### ✅ 阶段一：离散事件引擎
+### 可插拔协议架构
 
-- [x] `Event` + `EventKind`（含 PacketArrive/Depart/Timeout/Stop/Custom）
-- [x] `EventQueue`（`BinaryHeap` + 反向 Ord 实现最小堆）
-- [x] `Simulator`（时钟 + Handler 注册 + step/run/run_until）
-- [x] FIFO 稳定性（同时间戳事件保插入顺序）
-- [x] 单元测试 + 集成测试 + 基准
+所有协议实现 `Protocol` trait，`SimRunner` 通过 `Box<dyn Protocol>` 动态分发事件。新增协议只需实现 6 个核心方法。
 
-### ✅ 阶段二：网络拓扑与物理层
+### 集中式事件分发
 
-- [x] `Packet`：含 ECN、SACK base/bits、path_hint、depart_time
-- [x] `Link`：带宽 + 传播延迟，整数运算无浮点误差
-- [x] `Switch`：FIFO 队列 + ECN 标记 + buffer 上限丢包 + 路由表（ECMP 多路径）
-- [x] `LeafSpine`：参数化生成 + 完整路由
-- [x] `FatTree`：k-ary 三层完整实现
+`SimRunner` 根据 `EventKind` 查实体表直接修改状态，可在一个事件中自由读写协议、拓扑、链路、监控等多组件。
 
-### ✅ 阶段三：NIC + Fabric 协议栈
+### 事件驱动的 TxTick / RTO
 
-- [x] **TxNic**：
-  - 流量分段（应用层字节 → MTU 包）
-  - Packet Spraying（轮询挑选可用路径）
-  - CWND 维护 + AIMD 加性增加
-  - ECN 响应：先切路（路径黑名单 50us）再降窗
-  - RTO 超时重传（100us）
-- [x] **RxNic**：
-  - Reorder Buffer（基于 next_expected + 64-bit bitmap）
-  - 累计 ACK + SACK Bitmap
-  - 乱序时发送 NACK 触发选择性重传
-- [x] **CongestionMode**：`Ecmp` baseline 与 `Strack` 双模式
+TxTick 不再固定轮询——协议栈通过 `has_pending_work()` / `next_rto_deadline()` 告知何时需要下一次 tick，消除了大规模仿真中的空转开销。
 
-### ✅ 阶段四：流量生成与指标
+### PacketSlab 分配器
 
-- [x] `Incast`：N-to-1 拥塞场景
-- [x] `RingAllReduce`：经典 ring 模式
-- [x] `AllToAll`：全员两两交换
-- [x] `Monitor`：FCT、ECN 标记、丢包、最大队列深度、平均链路利用率
-- [x] `SimSummary`：CSV/JSON 可序列化（`serde::Serialize`）
+包暂存从 `HashMap` 替换为自实现的 Slab allocator（`Vec<Option<Packet>>` + 空闲列表），insert/remove 均为 O(1) 数组索引，实测吞吐提升 4-7 倍。
 
-### ✅ 端到端集成
+### 丢包归因追踪
 
-- [x] `SimRunner`：集中式仿真主循环，处理所有事件类型
-- [x] `incast_compare` 示例：ECMP vs Fabric 一键对比
-- [x] 实测 FCT 改善 ~13%（512 KB Incast）
+每次丢包记录原因（NoRoute / BufferFull / TtlExceeded）、端口、流、序号、时间，支持分维度聚合分析。
 
----
+### 可复现
 
-## 📝 关键设计要点
-
-### 1. 引擎与网络解耦
-`core/` 不依赖任何网络概念，可独立测试与替换为其他 DES 实现。
-
-### 2. 集中式仿真主循环
-没有使用 `Simulator` 的 handler 注册（borrow checker 太严），改为 `SimRunner` 集中分发事件。这允许在事件处理中自由读写所有实体状态。
-
-### 3. 全局唯一 packet id
-多个 TxNic 的本地 packet_id 在全局 `packet_buf` 中会冲突，因此 `SimRunner` 维护一个全局 PID 生成器，重写所有出包的 id。
-
-### 4. RTO 与持续 TxTick
-当 cwnd 满时仅靠 ACK 触发的 TxTick 不够（丢包后永远无 ACK），所以未完成流会定期 tick（25us）检查 RTO 超时并重传。
-
-### 5. 可复现
-所有随机数走 `rand_pcg` + 显式 seed（拓扑里仍然是确定性，不需要随机）。
+所有随机数使用 `rand_pcg` + 显式 seed，仿真结果完全可复现。
 
 ---
 
 ## 📚 参考资料
 
-- **Fabric 论文**：*"Fabric: A Reliable Multipath Transport for AI/ML Clusters"* (Meta NSDI'24)
-- **RoCEv2 / DCQCN**：[RFC 8888](https://datatracker.ietf.org/doc/html/rfc8888)
-- **htsim**：UCL 的 C++ DES 网络模拟器
-- **ns-3**：研究级网络模拟器
+- **STrack 论文**：*"STrack: A Reliable Multipath Transport for AI/ML Clusters"* (Meta, NSDI'24)
+- **CUBIC**：Ha et al., *"CUBIC: a new TCP-friendly high-speed TCP variant"* (SIGOPS 2008)
+- **DCQCN**：Zhu et al., *"Congestion control for large-scale RDMA deployments"* (SIGCOMM 2015)
+- **HPCC**：Li et al., *"HPCC: High Precision Congestion Control"* (SIGCOMM 2019)
+- **Swift**：Kumar et al., *"Swift: Delay is Simple and Effective for Congestion Control in the Datacenter"* (SIGCOMM 2020)
 
 ---
 
