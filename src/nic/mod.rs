@@ -5,6 +5,7 @@
 //! - `tcp`: 简化 TCP 实现（验证 trait 通用性）
 
 pub mod protocol;
+pub mod rdma;
 pub mod strack;
 pub mod tcp;
 pub mod dcqcn;
@@ -14,6 +15,7 @@ pub mod reno;
 pub mod cubic;
 
 pub use protocol::{Protocol, ProtocolStats};
+pub use rdma::{QueuePair, QpState, Qpn, Psn, RdmaOpcode, Wqe, Cqe, MsgBoundary};
 pub use strack::{STrackProtocol, STrackMode, PathState};
 pub use tcp::SimpleTcp;
 pub use dcqcn::DcqcnProtocol;

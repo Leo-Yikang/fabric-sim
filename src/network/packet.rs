@@ -30,65 +30,62 @@ pub struct Packet {
     pub id: PacketId,
     pub kind: PacketKind,
     pub flow_id: FlowId,
-    pub seq: SeqNum,             // 流内序号（用于 Reorder 与 ACK）
-    pub size: u32,                // 字节数
-    pub src: EntityId,            // 源主机 ID
-    pub dst: EntityId,            // 目的主机 ID
-    pub ecn: bool,                // 拥塞标记
-    /// 路由标签：非 0 时交换机优先按该值选端口（1-indexed）；0 表示由交换机自行哈希。
+    pub seq: SeqNum,
+    pub size: u32,
+    pub src: EntityId,
+    pub dst: EntityId,
+    pub ecn: bool,
     pub routing_tag: u8,
-    /// 协议自定义负载。控制包常用；数据包通常为空。
     pub payload: Vec<u8>,
-    /// 用于 FCT 统计：包出发时刻（ns）
     pub depart_time: u64,
-    /// 全局唯一、单调递增的追踪 ID，不随 slab 复用而重置。
-    /// 用于逐包调试和路径追踪，与 `id`（slab 索引）不同。
     pub trace_id: PacketId,
+    /// RDMA QP 编号（0 表示非 RDMA 包，向下兼容）
+    pub qpn: u32,
+    /// RDMA PSN — 每 QP 独立的包序号（24-bit 有效）
+    pub psn: u32,
+    /// 消息边界标志（MsgBoundary 枚举编码）
+    pub msg_flags: u8,
+    /// RDMA 操作码（RdmaOpcode 枚举编码，0 表示非 RDMA）
+    pub rdma_opcode: u8,
 }
 
 impl Packet {
     pub fn data(id: PacketId, trace_id: PacketId, flow: FlowId, seq: SeqNum, src: EntityId, dst: EntityId, depart_time: u64) -> Self {
         Self {
-            id,
-            trace_id,
-            kind: PacketKind::Data,
-            flow_id: flow,
-            seq,
-            size: MTU_BYTES,
-            src,
-            dst,
-            ecn: false,
-            routing_tag: 0,
-            payload: Vec::new(),
-            depart_time,
+            id, trace_id, kind: PacketKind::Data,
+            flow_id: flow, seq, size: MTU_BYTES,
+            src, dst, ecn: false, routing_tag: 0,
+            payload: Vec::new(), depart_time,
+            qpn: 0, psn: 0, msg_flags: 0, rdma_opcode: 0,
         }
     }
 
     pub fn control(
-        id: PacketId,
-        trace_id: PacketId,
-        flow: FlowId,
-        seq: SeqNum,
-        src: EntityId,
-        dst: EntityId,
-        ecn: bool,
-        control_type: u8,
-        payload: Vec<u8>,
-        now: u64,
+        id: PacketId, trace_id: PacketId, flow: FlowId, seq: SeqNum,
+        src: EntityId, dst: EntityId, ecn: bool, control_type: u8,
+        payload: Vec<u8>, now: u64,
     ) -> Self {
         Self {
-            id,
-            trace_id,
-            kind: PacketKind::Control(control_type),
-            flow_id: flow,
-            seq,
-            size: 64,
-            src,
-            dst,
-            ecn,
-            routing_tag: 0,
-            payload,
-            depart_time: now,
+            id, trace_id, kind: PacketKind::Control(control_type),
+            flow_id: flow, seq, size: 64,
+            src, dst, ecn, routing_tag: 0,
+            payload, depart_time: now,
+            qpn: 0, psn: 0, msg_flags: 0, rdma_opcode: 0,
+        }
+    }
+
+    /// 构造 RDMA 数据包
+    pub fn rdma_data(
+        id: PacketId, trace_id: PacketId,
+        qpn: u32, psn: u32, msg_flags: u8, opcode: u8,
+        src: EntityId, dst: EntityId, depart_time: u64,
+    ) -> Self {
+        Self {
+            id, trace_id, kind: PacketKind::Data,
+            flow_id: qpn, seq: psn, size: MTU_BYTES,
+            src, dst, ecn: false, routing_tag: 0,
+            payload: Vec::new(), depart_time,
+            qpn, psn, msg_flags, rdma_opcode: opcode,
         }
     }
 }
